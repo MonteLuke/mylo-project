@@ -1,0 +1,16 @@
+# Python Build & Distribution
+dist/
+build/
+*.egg-info/
+
+# Python Cache (Auto-generated code)
+__pycache__/
+*.py[cod]
+
+# Virtual Environments
+.venv/
+venv/
+
+# Operating System Noise
+.DS_Store
+Thumbs.db
