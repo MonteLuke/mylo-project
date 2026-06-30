@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mylo | Repository Analyzer Agent</title>
+    <style>
+        /* --- Ocean & Octopus Color Palette --- */
+        :root {
+    --ocean-top: #086a85;       /* Dark teal tint */
+    --ocean-mid: #08516b;       /* Vibrant subsurface cyan */
+    --ocean-bottom: #02395e;    /* Deep trench black */
+    
+    --midnight-blue: #002533;
+    --sea-foam: #00f5ff;        /* Boosted neon cyan */
+    --bioluminescent: #00b4d8;
+    --coral-reef: #ff7f50;
+    --shell-white: #f4f6f9;
+    --kelp-muted: #a3d5f7;
+    --abyss-glow: rgba(0, 245, 255, 0.2);
+}
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+    font-family: 'Courier Prime', monospace;
+    background-color: var(--ocean-top);
+    background-image: linear-gradient(180deg, var(--ocean-top) 0%, var(--ocean-mid) 45%, var(--ocean-bottom) 100%);
+    color: var(--shell-white);
+    line-height: 1.6;
+    padding: 0;
+}
+
+/* --- Hero Section --- */
+header {
+    /* CHANGED: Fades completely to transparent at the bottom so it melts into the body */
+    background: linear-gradient(180deg, rgba(28, 37, 65, 0.9) 0%, rgba(11, 19, 43, 0.5) 60%, transparent 100%);
+    text-align: center;
+    padding: 6rem 1rem 5rem 1rem;
+    position: relative;
+    overflow: hidden;
+}
+
+        /* Ambient glowing background behind the octopus */
+        header::before {
+            content: '';
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            background: var(--bioluminescent);
+            filter: blur(80px);
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        .octopus-emoji {
+            font-size: 5rem;
+            height:auto;
+            margin-bottom: 0.2rem; /* Reduced from 1rem to pull the heading up */
+            animation: float 4s ease-in-out infinite;
+            display: inline-block;
+            filter: drop-shadow(0 0 15px rgba(0, 180, 216, 0.4));
+        }
+
+        h1 {
+            font-size: 3.2rem;
+            color: var(--sea-foam);
+            margin-top: -15px;          /* 🌟 FIXED: Deletes the invisible top wall pushing it down */
+            line-height:1.1;
+            margin-bottom: 0.5rem;   /* Leaves a clean, balanced gap for the tagline below it */
+            letter-spacing: -0.5px;
+            text-shadow: 0 0 20px rgba(72, 202, 228, 0.4);
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+
+        .tagline {
+            font-size: 1.25rem;
+            color: var(--kelp-muted);
+            max-width: 600px;
+            margin: 0 auto 2rem auto;
+        }
+
+        /* --- Content Layout --- */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 1.5rem 6rem 1.5rem;
+        }
+
+       h2 {
+    font-size: 1.9rem;
+    color: var(--shell-white);
+    border-bottom: 2px solid rgba(28, 37, 65, 0.6);
+    padding-bottom: 0.6rem;
+    margin-top: 3.5rem;
+    margin-bottom: 1.5rem;
+    position: relative;
+}
+
+h2::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 100%; /* CHANGED: Base width is now 100% so transforms can scale it cleanly */
+    height: 2px;
+    background: var(--sea-foam);
+    box-shadow: 0 0 8px var(--sea-foam), 0 0 3px var(--bioluminescent);
+    
+    /* CRITICAL: Ensures the line expands out from the left side, not the center */
+    transform-origin: left; 
+    
+    animation: shore-wave 16s ease-in-out infinite;
+}
+
+/* --- Calmed & Staggered Wave Randomizer (Kept your exact unique timings) --- */
+h2:nth-of-type(1)::after { animation-duration: 26s; animation-delay: 0s; }
+h2:nth-of-type(2)::after { animation-duration: 23s; animation-delay: 0s; }
+h2:nth-of-type(3)::after { animation-duration: 29s; animation-delay: 0s; }
+h2:nth-of-type(4)::after { animation-duration: 34s; animation-delay: 0s; }
+h2:nth-of-type(5)::after { animation-duration: 26s; animation-delay: 0s; }
+h2:nth-of-type(6)::after { animation-duration: 35s; animation-delay: 0s; } 
+h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; } 
+
+/* --- High-Performance GPU Wave Physics --- */
+/* --- Active & Fluid Wave Physics (Reduced Delays) --- */
+@keyframes shore-wave {
+    0% {
+        transform: scaleX(0.08);
+        opacity: 0.3;
+    }
+    45% {
+        transform: scaleX(1); /* Reaches maximum width */
+        opacity: 0.85;
+        box-shadow: 0 0 15px var(--sea-foam);
+    }
+    50% {
+        transform: scaleX(1); /* REDUCED: Holds for just a tiny split-second split (5% instead of 15%) */
+        opacity: 0.85;
+        box-shadow: 0 0 15px var(--sea-foam);
+    }
+    95% {
+        transform: scaleX(0.08); /* Pulls back to the start quickly */
+        opacity: 0.15;
+        box-shadow: 0 0 4px var(--bioluminescent);
+    }
+    100% {
+        transform: scaleX(0.08); /* REDUCED: Instantly bounces back into the next growth cycle */
+        opacity: 0.3;
+    }
+}
+
+        /* --- Terminal Block --- */
+        .terminal {
+            background-color: #040812;
+            border: 1px solid rgba(0, 180, 216, 0.3);
+            border-radius: 12px;
+            padding: 1.8rem;
+            font-family: "Courier New", Courier, monospace;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6), 0 0 15px var(--abyss-glow);
+            margin-top: 1.5rem;
+            margin-bottom: 3.5rem;
+            position: relative;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .terminal:hover {
+            border-color: var(--sea-foam);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.7), 0 0 25px rgba(72, 202, 228, 0.25);
+        }
+
+        .terminal-header {
+            color: var(--sea-foam);
+            font-size: 0.9rem;
+            margin-bottom: 1.2rem;
+            border-bottom: 1px solid rgba(28, 37, 65, 0.8);
+            padding-bottom: 0.6rem;
+            display: flex;
+            align-items: center;
+        }
+
+        .command {
+            color: var(--shell-white);
+            margin-bottom: 0.5rem;
+            text-shadow: 0 0 2px rgba(255, 255, 255, 0.3);
+        }
+
+        .command::before {
+            content: "$ ";
+            color: var(--coral-reef);
+            font-weight: bold;
+        }
+
+        .comment {
+            color: #4ef08b; /* Bioluminescent green comment look */
+            opacity: 0.85;
+        }
+
+        /* --- Features Grid --- */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.75rem;
+            margin-top: 1.5rem;
+            margin-bottom: 3.5rem;
+        }
+
+        .card {
+            background-color: var(--midnight-blue);
+            padding: 1.8rem;
+            border-radius: 12px;
+            border: 1px solid rgba(28, 37, 65, 0.7);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+            transition: transform 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), 
+                        box-shadow 0.4s cubic-bezier(0.165, 0.84, 0.44, 1), 
+                        border-color 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-8px);
+            border-color: var(--sea-foam);
+            box-shadow: 0 20px 35px rgba(0, 0, 0, 0.4), 0 0 20px var(--abyss-glow);
+        }
+
+        .card h3 {
+            color: var(--sea-foam);
+            margin-bottom: 0.85rem;
+            font-size: 1.25rem;
+            text-shadow: 0 0 10px rgba(72, 202, 228, 0.2);
+        }
+
+        .card p {
+            color: var(--kelp-muted);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* --- Configuration Info Box --- */
+        .config-box {
+            background: linear-gradient(135deg, rgba(72, 202, 228, 0.04) 0%, rgba(0, 180, 216, 0.01) 100%);
+            border: 1px solid rgba(0, 180, 216, 0.25);
+            padding: 1.8rem;
+            border-radius: 12px;
+            margin-top: 2.5rem;
+            box-shadow: inset 0 0 15px rgba(0, 180, 216, 0.05);
+        }
+
+        .config-box h4 {
+            color: var(--coral-reef);
+            margin-bottom: 0.6rem;
+            font-size: 1.1rem;
+            text-shadow: 0 0 10px rgba(255, 127, 80, 0.2);
+        }
+
+        code {
+            background-color: #040812;
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+            color: var(--sea-foam);
+            font-family: monospace;
+            border: 1px solid rgba(72, 202, 228, 0.15);
+            font-size: 0.9rem;
+        }
+
+        footer {
+    /* Kept your gorgeous deep abyss blue gradient */
+    background: linear-gradient(180deg, #051636 0%, #020c24 50%, #010512 100%);
+    border-top: 1px solid rgba(72, 202, 228, 0.15);
+    box-shadow: 0 -10px 30px rgba(0, 180, 216, 0.05);
+    
+    padding: 3rem 2rem; /* Clean vertical spacing */
+    position: relative;
+    z-index: 2;
+}
+
+/* --- The Flexbox Alignment Engine --- */
+.footer-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: center; /* 🌟 FIXED: Forces the copyright text to the absolute middle */
+    align-items: center;
+    position: relative;      /* Sets the anchor point for the left links */
+    min-height: 80px;        /* Ensures ample breathing room */
+}
+
+.footer-left {
+    position: absolute;      /* 🌟 FIXED: Pins links to the left edge without pushing the text */
+    left: 0;
+    display: flex;
+    flex-direction: column;  /* Keeps your vertical stack */
+    gap: 0.6rem;
+    align-items: flex-start;
+}
+
+.footer-right p {
+    margin: 0;
+    text-align: center;
+}
+
+
+.footer-right {
+    display: flex;
+    text-align:center;
+    flex-direction: column;
+    align-items: center; /* Aligns both rows beautifully to the right edge */
+}
+
+.tagline-row {
+    margin: 0; /* Cleans up default paragraph spacing */
+}
+
+.license-row {
+    margin: 0;
+    margin-top: 0.6 rem;       /* 🌟 CONTROL SPACE: Adjust this value to add more or less gap */
+    font-size: 0.85rem;       /* Slightly smaller text makes it look secondary and clean */
+    opacity: 0.65;            /* Fades it slightly so it doesn't distract from your tagline */
+    font-weight: 500;
+}
+
+
+
+/* --- Global Footer Typography & Glow --- */
+footer, footer p, footer a {
+    color: #ffffff;
+    font-weight: 700;
+    text-shadow: 0 0 8px rgba(72, 202, 228, 0.4);
+    text-decoration: none;
+}
+
+/* --- Smooth Hover Transitions for the Left Links --- */
+.footer-link {
+    transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+.footer-link:hover {
+    color: #48cae4; /* Neon foam color shift on hover */
+    text-shadow: 0 0 12px #48cae4;
+}
+
+.footer-logo {
+    height: 2.3rem;         /* Scales the image down to match your text font size perfectly */
+    width: auto;            /* Keeps the logo's aspect ratio locked */
+    vertical-align: middle; /* FIXED: Keeps the logo and the text perfectly level on the same line */
+    margin-right: 0.4rem;   /* Adds a tiny bit of breathing room before the text starts */
+}
+
+        /* --- Animations --- */
+        @keyframes float {
+            0% {
+                transform: translateY(0px) rotate(0deg);
+            }
+            50% {
+                transform: translateY(-12px) rotate(3deg);
+            }
+            100% {
+                transform: translateY(0px) rotate(0deg);
+            }
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                text-shadow: 0 0 15px rgba(72, 202, 228, 0.3);
+            }
+            50% {
+                text-shadow: 0 0 25px rgba(0, 180, 216, 0.65);
+                color: #fff;
+            }
+        }
+
+        /* --- Floating Deep Sea Bubbles (Fixed Layering) --- */
+.bubble-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999; /* Forces bubbles to float on top of header gradients */
+    pointer-events: none; /* Keeps all text and buttons perfectly clickable */
+    overflow: hidden;
+}
+
+.individual-bubble {
+    position: absolute;
+    bottom: -50px;
+    background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4) 0%, rgba(72, 202, 228, 0.05) 70%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 50%;
+    box-shadow: 0 0 8px rgba(0, 180, 216, 0.15);
+    animation: float-up infinite linear;
+}
+
+/* Distribution layouts */
+.individual-bubble:nth-child(1) { left: 10%; width: 35px; height: 35px; animation-duration: 12s; animation-delay: 0s; }
+.individual-bubble:nth-child(2) { left: 25%; width: 18px; height: 18px; animation-duration: 18s; animation-delay: 2s; }
+.individual-bubble:nth-child(3) { left: 40%; width: 45px; height: 45px; animation-duration: 14s; animation-delay: 5s; }
+.individual-bubble:nth-child(4) { left: 55%; width: 12px; height: 12px; animation-duration: 22s; animation-delay: 1s; }
+.individual-bubble:nth-child(5) { left: 70%; width: 30px; height: 30px; animation-duration: 16s; animation-delay: 7s; }
+.individual-bubble:nth-child(6) { left: 85%; width: 22px; height: 22px; animation-duration: 20s; animation-delay: 3s; }
+.individual-bubble:nth-child(7) { left: 92%; width: 40px; height: 40px; animation-duration: 13s; animation-delay: 9s; }
+
+@keyframes float-up {
+    0% {
+        transform: translateY(0) scale(0.8) translateX(0);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.35; /* Softer opacity so it looks elegant passing over text */
+    }
+    90% {
+        opacity: 0.35;
+    }
+    100% {
+        transform: translateY(-115vh) scale(1.2) translateX(30px);
+        opacity: 0;
+    }
+}
+
+/* Normalized container layer rules */
+.container, header, footer {
+    position: relative;
+    z-index: 1;
+}
+
+/* --- Swimming Deep Sea Fish Background --- */
+.fish-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+
+
+.individual-fish {
+    position: absolute;
+    opacity: 0;
+    animation: swim-left infinite linear;
+    filter: drop-shadow(0 0 8px rgba(72, 202, 228, 0.35)); 
+}
+
+/* Varying font-sizes creates a 3D depth effect (smaller fish look farther away).
+  Negative delays force them to be pre-distributed across the screen instantly on load!
+*/
+.individual-fish:nth-child(1)  { top: 4%;  font-size: 1.5rem; animation-duration: 35s; animation-delay: -5s; }
+.individual-fish:nth-child(2)  { top: 9%;  font-size: 0.9rem; animation-duration: 58s; animation-delay: -14s; }
+.individual-fish:nth-child(3)  { top: 15%; font-size: 1.1rem; animation-duration: 48s; animation-delay: -25s; }
+.individual-fish:nth-child(4)  { top: 21%; font-size: 1.6rem; animation-duration: 39s; animation-delay: -31s; }
+.individual-fish:nth-child(5)  { top: 26%; font-size: 2.0rem; animation-duration: 30s; animation-delay: -12s; }
+.individual-fish:nth-child(6)  { top: 32%; font-size: 0.8rem; animation-duration: 65s; animation-delay: -45s; }
+.individual-fish:nth-child(7)  { top: 37%; font-size: 1.3rem; animation-duration: 55s; animation-delay: -40s; }
+.individual-fish:nth-child(8)  { top: 42%; font-size: 1.7rem; animation-duration: 42s; animation-delay: -8s; }
+.individual-fish:nth-child(9)  { top: 47%; font-size: 2.2rem; animation-duration: 27s; animation-delay: -19s; }
+.individual-fish:nth-child(10) { top: 52%; font-size: 1.0rem; animation-duration: 60s; animation-delay: -50s; }
+.individual-fish:nth-child(11) { top: 57%; font-size: 2.4rem; animation-duration: 32s; animation-delay: -3s; }
+.individual-fish:nth-child(12) { top: 62%; font-size: 1.2rem; animation-duration: 50s; animation-delay: -37s; }
+.individual-fish:nth-child(13) { top: 67%; font-size: 1.4rem; animation-duration: 46s; animation-delay: -18s; }
+.individual-fish:nth-child(14) { top: 72%; font-size: 1.8rem; animation-duration: 41s; animation-delay: -11s; }
+.individual-fish:nth-child(15) { top: 77%; font-size: 1.2rem; animation-duration: 52s; animation-delay: -33s; }
+.individual-fish:nth-child(16) { top: 82%; font-size: 1.9rem; animation-duration: 38s; animation-delay: -15s; }
+.individual-fish:nth-child(17) { top: 86%; font-size: 0.9rem; animation-duration: 62s; animation-delay: -55s; }
+.individual-fish:nth-child(18) { top: 90%; font-size: 1.5rem; animation-duration: 40s; animation-delay: -29s; }
+.individual-fish:nth-child(19) { top: 94%; font-size: 1.1rem; animation-duration: 50s; animation-delay: -7s; }
+.individual-fish:nth-child(20) { top: 98%; font-size: 1.7rem; animation-duration: 36s; animation-delay: -22s; }
+
+@keyframes swim-left {
+    0% {
+        transform: translateX(105vw) translateY(0);
+        opacity: 0;
+    }
+    8% {
+        opacity: 0.22; /* Keeps them beautifully faint so they stay in the background */
+    }
+    92% {
+        opacity: 0.22;
+    }
+    100% {
+        transform: translateX(-15vw) translateY(-50px);
+        opacity: 0;
+    }
+}
+
+/* --- New Utility Class to Override Direction --- */
+.individual-fish.swim-right {
+    animation-name: swim-right; /* Swaps the animation path */
+}
+
+/* --- High-Performance Left-to-Right Animation --- */
+@keyframes swim-right {
+    0% {
+        /* Starts off-screen to the left (-15vw) and scaleX(-1) flips the emoji face forward */
+        transform: translateX(-15vw) translateY(0) scaleX(-1);
+        opacity: 0;
+    }
+    8% {
+        opacity: 0.22; /* Keeps the same background stealth level */
+    }
+    92% {
+        opacity: 0.22;
+    }
+    100% {
+        /* Finishes off-screen to the right (105vw) */
+        transform: translateX(105vw) translateY(-50px) scaleX(-1);
+        opacity: 0;
+    }
+}
+
+/* Guarantees your text containers ride safely above the aquarium layer */
+header, .container, footer {
+    position: relative;
+    z-index: 2;
+}
+
+.inline-link {
+    color: var(--sea-foam);
+    text-decoration: none;
+    text-underline-offset: 4px;
+    font-weight: 700;
+    transition: color 0.2s ease, text-shadow 0.2s ease;
+}
+
+.inline-link:hover {
+    color: #ffffff;
+    text-shadow: 0 0 10px var(--sea-foam);
+}
+
+    </style>
+</head>
+<body>
+
+    <div class="bubble-wrapper">
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+    </div>
+
+    <div class="fish-wrapper">
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish">🐠</div>
+        <div class="individual-fish swim-right">🐠</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish">🐡</div>
+        <div class="individual-fish swim-right">🐡</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish swim-right">🐠</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish swim-right">🐡</div>
+        <div class="individual-fish">🐠</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish swim-right">🐟</div>
+        <div class="individual-fish swim-right">🐠</div>
+        <div class="individual-fish">🐡</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish swim-right">🐡</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish swim-right">🐠</div>
+    </div>
+
+    <header>
+    <div class="octopus-emoji">
+        <img src="logo.png" alt="Mylo Logo" class="logo-image" width="85">
+    </div>
+    <h1>Mylo</h1>
+    <p class="tagline">An Opensource agent built to deep-dive and analyze repositories directly from your terminal.</p>
+</header>
+
+    <div class="container">
+        <h2> Mylo's Core Mission</h2>
+        <p style="color: var(--kelp-muted); margin-bottom: 1rem;">
+            Mylo isn't just another coding agent. His real mission is to make the millions of open-source projects on the internet easy to understand and actually useful again. He is created to solve one of the biggest headaches in modern programming: using code libraries and packages we don't fully understand. Mylo dives deep to show you exactly what each library do and how to use them properly. This will help to use libraries more effectively enabling you to build better software with peace of mind.
+        </p>
+
+        <h2>Quick Start</h2>
+        <div class="terminal">
+            <div class="terminal-header"># Start diving...</div>
+            <div class="comment"># Install the package globally or in your virtual environment</div>
+            <div class="command">pip install mylo-agent</div>
+            <br>
+            <div class="comment"># Launch Mylo</div>
+            <div class="command">mylo</div>
+        </div>
+
+        <h2>Functionalities</h2>
+        <div class="grid">
+            <div class="card">
+                <h3> Suggest Repositories of your need</h3>
+                <p>With his multiple tentacles, Mylo effortlessly tracks down repositories of your need and reveals their deep, underlying file structure. Ask questions to Mylo to get a general understanding about the repository</p>
+            </div>
+            <div class="card">
+                <h3> Deep Repository Hunt</h3>
+                <p>Mylo doesn't just look for repositories, he understands it. He can fetch and analyze any file from a repository instantly. He will write those files straight to your local disk if you wanted. Just ask your questions; Mylo will answer it.</p>
+            </div>
+            <div class="card">
+                <h3>AST Based Analysis</h3>
+                <p>If analysing entire file is slow to you, Mylo also comes with tools that utilises AST of the file, allowing the agent to understand the code quicker</p>
+            </div>
+        </div>
+
+        <h2>About The TUI</h2>
+        <p style="color: var(--kelp-muted); margin-bottom: 1rem;">
+            Talk to Mylo naturally right from your command line using your choice of AI providers. To keep things honest, Mylo displays your exact token usage for individual query, as well as your overall total. No surprise token count, just clear real-time tracking.</p>
+
+        <h2>It Is an Efficient Hunter</h2>
+        <p style="color: var(--kelp-muted); margin-bottom: 1rem;">Mylo is under your control. Personalize his style by changing his core system prompt in any way you want. Also Mylo allows you choose the maximum token given as the context; and automatically trims the context accordingly to maximize efficiency. (Check out the <a href="docs.html" class="inline-link">docs</a> to learn more).</p>
+
+        <h2>Languages Supported By Mylo</h2>
+        <p style="color: var(--kelp-muted); margin-bottom: 1rem;">
+            Mylo utilises python's tree sitter package. Therefore, currently the AST tools only support 16 languages.<br> <br> • Supported Languages:- Python, Go, Javascript, Typescript, Lua, Java, Rust, Kotlin, Scala, C, C++, C#, Ruby, Php, Dart, Swift
+        </p>
+
+        <h2>Configuration Management</h2>
+        <p style="color: var(--kelp-muted); margin-bottom: 1rem;">On initial launch, Mylo automatically creates a ~/mylo-config directory in your home folder with your .env and SYSTEM_PROMPT.md files. You can modify the system prompt by navigating to the file ~/mylo-config/SYSTEM_PROMPT.md</p>
+
+        <div class="config-box">
+            <h4>Config Directory: <code>~/mylo-config/</code></h4>
+            <p style="color: var(--kelp-muted); font-size: 0.95rem; margin-top: 0.5rem;">
+                • Edit <code>SYSTEM_PROMPT.md</code> to personalise Mylo<br>
+                • <code>.env</code> Consist your model profile, api keys and Github, Gitlab tokens. (to learn more about model profiles, read <a href="docs.html" class="inline-link">docs</a>.)
+            </p>
+        </div>
+    </div>
+
+    <footer>
+    <div class="footer-container">
+        <div class="footer-left">
+            <a href="https://github.com" target="_blank" class="footer-link">GitHub</a>
+            <a href="docs.html" class="footer-link">Docs</a>
+        </div>
+        
+        <div class="footer-right">
+            <p class="tagline-row">
+                <img src="logo.png" alt="Mylo Logo" class="footer-logo"> 
+                Every Code Matter Now ~ Mylo
+            </p>
+            <br>
+            <br>
+            <p class="license-row">Released under the MIT License</p>
+        </div>
+    </div>
+</footer>
+</body>
+</html>
