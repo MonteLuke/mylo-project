@@ -23,6 +23,8 @@ from rich.markdown import Markdown as RichMarkdown
 from .tools import tools
 from dotenv import load_dotenv, set_key, unset_key, dotenv_values
 
+import subprocess
+from langchain_ollama import ChatOllama
 
 
 
@@ -89,6 +91,20 @@ def dynamic_llm(model_provider, model_name, api_key):
         elif model_provider == "google":
             return ChatGoogleGenerativeAI(model=model_name, google_api_key=api_key)
             
+        elif model_provider == "huggingface":
+            return ChatOpenAI(
+                    base_url="https://router.huggingface.co/v1",
+                    api_key=api_key, 
+                    model= model_name 
+                    )
+          
+        elif model_provider == "ollama":
+
+            return ChatOllama(
+                model=model_name,
+                temperature = 0.7,
+            )
+        
         else:
             # Fallback block triggered if an unrecognized provider string is supplied
             return None
@@ -497,6 +513,8 @@ class ConfigModal(ModalScreen):
             ("OpenAI", "openai"),
             ("Groq", "groq"),
             ("Anthropic", "anthropic"),
+            ("Hugging Face", "huggingface"),
+            ("Ollama", "ollama")
         ]
 
         with Vertical(id="modal-wrapper"):
@@ -900,7 +918,7 @@ class Mylo(App):
                 yield LoadingIndicator(id="query-spinner")
 
                 # A multiline text input/query area
-                yield TextArea(placeholder="Type message... (Press ctrl+r to send)", id="chat-input")
+                yield TextArea(placeholder= r"Type message... (Press ctrl+r to send). Use \cmd {command} for local stateless execution", id="chat-input")
                 
             # Wrapped both counters (to show the token count and the cost) inside a dedicated horizontal row
             with Horizontal(id="counter-wrap"):
@@ -1111,6 +1129,54 @@ class Mylo(App):
         # If user not typed anything, do nothing
         if not user_text:
             return
+
+        # --- Inline Stateless Command Logic ---
+
+        if user_text.startswith(r"\cmd "):
+
+            # 1. Clear the input box instantly so it's ready for the next command
+            input_box.text = ""
+
+            # 2. Extract the actual command
+            bash_command = user_text[5:].strip()
+
+            # 3. write the command result onto to the chat-container 
+            chat_log = self.query_one("#chat-container", RichLog)
+            chat_log.write(f"\n[bold #1C4FF5] Executing Command:[/bold #1C4FF5] `{bash_command}`")
+            chat_log.write("")
+            try:
+                # Run the process locally using subprocess
+                result = subprocess.run(
+                    bash_command, 
+                    shell=True, 
+                    capture_output=True, 
+                    text=True, 
+                    timeout=10
+                )
+                # Use stdout on success, stderr on failure logs
+                cmd_output = result.stdout if result.returncode == 0 else result.stderr
+                if not cmd_output.strip():
+                    cmd_output = "[dim](Command executed successfully with no returned output)[/dim]"
+                
+            except subprocess.TimeoutExpired:
+                cmd_output = "[bold red] Error:[/bold red] Command timed out after 10 seconds."
+            except Exception as e:
+                cmd_output = f"[bold red] Local Execution Error:[/bold red] {str(e)}"
+
+            # Build the clean panel layout
+            bash_panel = Panel(
+                cmd_output.strip(),
+                title="[bold #1C4FF5]Command Output[/bold #1C4FF5]",
+                title_align="left",
+                border_style="#1C4FF5",
+                padding=(1, 2),
+                expand=True
+            )
+        
+            # Write the panel
+            chat_log.write(bash_panel)
+            chat_log.write("")
+            return # CRITICAL: Exits the function early. The LLM agent loop is never triggered
 
         # Render the user's message into the chat log using Markdown
         chat_log = self.query_one("#chat-container", RichLog)
