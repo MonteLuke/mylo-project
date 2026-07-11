@@ -14,7 +14,10 @@ from pathlib import Path
 
 from langchain_core.tools import tool
 
-
+import urllib.parse 
+import urllib.request
+import urllib.error
+import re
 
 
 
@@ -1033,6 +1036,892 @@ def search_repos(
         raise RuntimeError(f"Unexpected parsing failure on [{platform_key}]: {str(e)}") from e
 
 
+# ─────────────────────────────────────────────
+# SEARCH ON LANGUAGE SPECIFIC LIBRARY REGISTRY
+# ─────────────────────────────────────────────
+
+@tool
+def search_language_registry(keywords_str: str, language: str, limit: str = "5") -> str:
+    """
+    Search the official package registry of each language and get the package name and repo name associated with the package in github.
+    Use it when user wanted to find a library/package in a specific language. Show the package/library name and its github repo name as seperated and in a nice format.
+    
+    Args:- 
+        keywords_str : string of list of keywords (eg. "['hello','py'])
+        language: name of the programming language (always be in lower cases)
+        limit: number of package names needed (default to 5)
+
+    Output:-
+         a JSON string of the package names and its github repo name (owner/repo format) in key value format (eg. {'rich':'Textualize/rich', ...})    
+    
+    IMP:- 
+          * lua is not supported
+
+          * for python language, the keyword should be the exact name of the package (eg. rich) or it will return empty.
+          
+          * for c, cpp, kotlin, csharp and go, the keywords should be the part of the package name (sub name search) or it will return empty (eg. if package name is goodui then keyword can be "['ui']")
+    
+          * other languages support fuzzy keyword search
+    """
+
+    # Normalize language input
+    lang_clean = language.strip().lower()
+
+    # Lua early exit (since LuaRock dont officially give search api)
+    if lang_clean == "lua":
+        return "Lua is not supported"
+
+    # Max limit of results
+    max_limit = min(int(limit), 15)
+
+    # 1. Parse incoming string of keywords safely
+    try:
+        keywords_list = ast.literal_eval(keywords_str.strip())
+        if not isinstance(keywords_list, list):
+            keywords_list = [str(keywords_list)]
+    except Exception:
+        keywords_list = [k.strip() for k in keywords_str.replace("[", "").replace("]", "").split(",") if k.strip()]
+
+    # Filter out empty entries
+    keywords_list = [str(k).strip() for k in keywords_list if str(k).strip()]
+    if not keywords_list:
+        return json.dumps([])
+    
+    # Http header
+    headers = {
+        'User-Agent': 'MyloRegistryBot/1.0 (contact: developer@local.env)',
+        'Accept': 'application/json'
+    }
+    
+    # Intialize the dict to store the result
+    package_results = {}
+
+    try:
+
+        # --- JAVASCRIPT AND TYPESCRIPT REGISTRY SEARCH (NPM) ---
+        if lang_clean in {"javascript", "typescript", "js", "ts"}:
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+            url = f"https://registry.npmjs.org/-/v1/search?text={encoded_query}&size={max_limit}"
+            
+            # Execute the HTTP GET request on the npm api
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the npm api result
+                # Extract the core package metadata and check if it is already added this 
+                # exact package to our results to prevent duplicates.
+                for item in data.get("objects", []):
+                    pkg_info = item.get("package", {})
+                    name = pkg_info.get("name")
+                    
+                    if name and name not in package_results:
+
+                        # Extract and sanitize the github repo url
+                        links = pkg_info.get("links", {})
+                        repo_url = links.get("repository", "")
+                        
+                        repo_identifier = ""
+                        if repo_url and "github.com" in repo_url.lower():
+
+                            # Parse the clean url to extract the strict 'owner/repo' format
+                            clean_url = repo_url.replace("git+", "").replace(".git", "")
+                            
+                            parts = clean_url.split("github.com/")
+                            if len(parts) > 1:
+                                path_parts = parts[1].strip("/").split("/")
+                                if len(path_parts) >= 2:
+                                    # Combine exactly the first two chunks: owner and repo name
+                                    repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+                        
+                        # Map the package name to its repo name (owner/repo format)
+                        package_results[name] = repo_identifier
+
+                    # Break the loop if the number of result reaches max limit        
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- RUST REGISTRY SEARCH (CRATES.IO) ---
+        elif lang_clean in {"rust", "rs"}:
+
+            # Combine the keyword list into a single search string and add this to the url
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+
+            # Construct the crates.io API endpoint with the requested page size (or number of results)
+            url = f"https://crates.io/api/v1/crates?q={encoded_query}&per_page={max_limit}"
+            
+            # Crates.io strictly requires a descriptive User-Agent or it will block requests
+            rust_headers = headers.copy()
+            if 'User-Agent' not in rust_headers or 'Python' in rust_headers.get('User-Agent', ''):
+                rust_headers['User-Agent'] = 'MyAgent/1.0 (contact@example.com)'
+                
+            # Execute the request with a 6-second timeout to prevent TUI freezing    
+            req = urllib.request.Request(url, headers=rust_headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+
+                # Parse the JSON response from crates.io response
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the list of returned crate objects
+                for crate in data.get("crates", []):
+                    name = crate.get("name")
+                    
+                     # Only process the crate if it has a name and we haven't added it already
+                    if name and name not in package_results:
+                        repo_url = crate.get("repository", "") or ""
+                        
+                        repo_identifier = ""
+
+                        # Parse github url to get the owner/repo format 
+                        if repo_url and "github.com" in repo_url.lower():
+
+                            # Strip away common git extensions and any trailing slashes
+                            clean_url = repo_url.replace(".git", "").strip("/")
+
+                            # Split the URL at the domain to isolate the path
+                            parts = clean_url.split("github.com/")
+                            if len(parts) > 1:
+
+                                # Split the path by slashes to separate the owner, repo, and any branches/dirs
+                                path_parts = parts[1].split("/")
+                                if len(path_parts) >= 2:
+                                    # Construct the 'owner/repo' structure
+                                    repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+
+                        # Map the crate name to its repo name (owner/repo format)            
+                        package_results[name] = repo_identifier
+
+                    # Break the loop if the number of result reach the max limit    
+                    if len(package_results) >= max_limit:
+                        break
+        
+        # --- JAVA REGISTRY SEARCH (MAVEN)---
+        elif lang_clean == "java":
+
+            # Combine the keyword list into a single search string and add this to the url
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+
+            # Construct Maven Central Solr API endpoint with the requested page size (or number of results)
+            url = f"https://search.maven.org/solrsearch/select?q={encoded_query}&rows={max_limit}&wt=json"
+            
+            # Execute the search request
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the response document
+                for doc in data.get("response", {}).get("docs", []):
+
+                    # Extract the standard Maven coordinates: Group ID, Artifact ID, and Latest Version
+                    g_id = doc.get("g")
+                    a_id = doc.get("a")
+                    v_id = doc.get("latestVersion")
+                    
+                    # Ensure all Maven coordinates are present
+                    if g_id and a_id and v_id:
+
+                        # Format the standard Maven package identifier (e.g., "org.apache.commons:commons-lang3")
+                        pkg_string = f"{g_id}:{a_id}"
+                        
+                        if pkg_string not in package_results:
+                            repo_identifier = ""
+                            
+                            # Maven's search API doesn't return the repo URL directly. 
+                            # We must construct the path to the project's POM (Project Object Model) file to find it.
+                            # Convert Group ID to directory path (e.g., "org.apache.commons" -> "org/apache/commons")
+                            g_path = g_id.replace('.', '/')
+                            pom_url = f"https://repo1.maven.org/maven2/{g_path}/{a_id}/{v_id}/{a_id}-{v_id}.pom"
+                            
+                            try:
+                                
+                                # Fetch the raw XML content of the POM file
+                                pom_req = urllib.request.Request(pom_url, headers=headers)
+                                with urllib.request.urlopen(pom_req, timeout=3) as pom_res:
+
+                                    # Read and decode the XML, ignoring non-UTF-8 characters to prevent crashes
+                                    pom_content = pom_res.read().decode('utf-8', errors='ignore')
+                                    
+                                    # Perform a fast string check to see if GitHub is even mentioned in the metadata
+                                    if "github.com/" in pom_content.lower():
+
+                                        # Split the XML content by "github.com/" to inspect what comes directly after the domain
+                                        parts = pom_content.split("github.com/")
+                                        for part in parts[1:]:
+                                            
+                                            # Grab a small 100-character chunk to limit our regex search scope
+                                            chunk = part[:100]
+        
+                                            # Clean out common Git/SCM suffixes and XML namespace colons
+                                            chunk = chunk.replace(".git", "").replace(":", "/")
+        
+                                            # Use a regex to extract the first two valid URL path segments (owner/repo)
+                                            # Matches alphanumeric characters, hyphens, underscores, and dots
+                                            match = re.match(r'^([\w\-\.]+)/([\w\-\.]+)', chunk.strip("/"))
+                                            if match:
+
+                                                owner, repo = match.group(1), match.group(2)
+            
+                                                # Safety check to ensure we didn't capture an XML tag name like 'issues' or 'tree'
+                                                if owner not in ["content", "properties", "tags"] and "<" not in owner:
+                                                    repo_identifier = f"{owner}/{repo}"
+                                                    break
+                            except Exception:
+                                # Fall back to empty string if the POM file is missing or inaccessible
+                                pass
+
+                            # Map the library name to its repo name    
+                            package_results[pkg_string] = repo_identifier
+
+                    # Break the loop if the number of results reaches the max limit        
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- GO REGISTRY SEARCH ---
+        elif lang_clean in {"go", "golang"}:
+
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+
+            # Querying the official pkg.go.dev discovery search endpoint
+            url = f"https://pkg.go.dev/v1beta/search?q={encoded_query}&limit={max_limit}"
+            
+            # Execute the network requests with a 6 second timeout
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+
+                # Parse the JSON response from the Go packages
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Safely extract the list of results, checking for common key variations in the API response
+                raw_items = data.get("items") or data.get("results") or []
+                
+                # Iterate through the discovered Go packages
+                for result in raw_items:
+
+                    # In Go, the package "path" (e.g., "github.com/gin-gonic/gin") is the primary identifier
+                    path = result.get("path") or result.get("modulePath")
+                    
+                    # Only process if we have a valid path and haven't added it already
+                    if path and path not in package_results:
+                        repo_identifier = ""
+                        
+                        # Go module paths often embed github directly as the module namespace
+                        if "github.com/" in path.lower():
+
+                            # Split the path at the domain name
+                            parts = path.split("github.com/")
+                            if len(parts) > 1:
+
+                                # Split the remaining path by "/" and filter out any empty strings.
+                                # This is crucial because Go paths sometimes have trailing slashes or version 
+                                # suffixes (like "/v2") that we need to cleanly ignore.
+                                path_parts = [p.strip() for p in parts[1].split("/") if p.strip()]
+                                if len(path_parts) >= 2:
+
+                                    # Isolate the exact owner and base repository name
+                                    repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+
+
+                        package_results[path] = repo_identifier
+                        
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- C & C++ (GITHUB API SEARCH) (BECAUSE THEY DONT HAVE A CENTRALISED AND USER FRIENDLY API ---
+        elif lang_clean in {"c", "cpp", "c++"}:
+
+            search_query = " ".join(keywords_list)
+
+            # Unlike Python or JS, C/C++ do not have a single centralized package registry.
+            # We work around this by querying GitHub's API directly, using GitHub's search 
+            # qualifiers (language:c, language:cpp) to strictly filter for C/C++ repositories.
+            
+            # Make query specific for C
+            if lang_clean == "c":
+                
+                encoded_query = urllib.parse.quote(f"{search_query} language:c")
+            
+            # Make query specific for cpp
+            else:
+                encoded_query = urllib.parse.quote(f"{search_query} language:cpp")    
+            
+            
+            url = f"https://api.github.com/search/repositories?q={encoded_query}&per_page={max_limit}"
+            
+            # GitHub's API is very strict about headers. We copy the base headers and 
+            # overwrite them with a standard browser User-Agent and the specific GitHub v3 JSON accept type.
+            cpp_headers = headers.copy()
+            cpp_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            cpp_headers['Accept'] = 'application/vnd.github.v3+json'
+            
+            req = urllib.request.Request(url, headers=cpp_headers)
+            try:
+
+                # Execute the Github API request
+                with urllib.request.urlopen(req, timeout=6) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    
+                    # Extract the clean, definitive 'owner/repository' layout
+                    for item in data.get("items", []):
+                        name = item.get("name") # The repository name itself (acts as the package name)
+                        full_name = item.get("full_name")  # # The definitive "owner/repo" format
+                        
+                        # Map the repo name to its full GitHub path, ensuring we don't add duplicates
+                        if name and full_name and name not in package_results:
+                            package_results[name] = full_name
+
+                        # Stop processing early if we hit the requested limit    
+                        if len(package_results) >= max_limit:
+                            break
+            except Exception:
+                # If the GitHub API fails (e.g., rate limit, network error), we don't crash.
+                # Instead, we fall back to mapping the raw user keywords to empty strings.
+                # This signals to the LLM that the search was attempted but yielded no valid URLs.
+                for token in keywords_list:
+                    package_results[token.lower()] = ""
+
+
+        # --- RUBY REGISTRY SEARCH (RUBYGEM) ---
+        elif lang_clean in {"ruby", "rb"}:
+
+            
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+
+            # Construct the RubyGems API v1 search endpoint
+            # Note: We don't pass a limit parameter here, so the API returns a default number of results 
+            # and we enforce the limit manually by breaking out of the loop below.
+            url = f"https://rubygems.org/api/v1/search.json?query={encoded_query}"
+            
+            # Execute the network request with a 6 second timeout
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+
+                # Parse the JSON response. RubyGems returns a flat array of gem dictionaries directly
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the array of returned Ruby gems
+                for gem in data:
+                    name = gem.get("name")
+                    
+                    # Only process the gem if it has a name and we haven't added it to our results yet
+                    if name and name not in package_results:
+
+                        # RubyGems provides multiple URL fields. We prioritize 'source_code_uri' 
+                        # because it points directly to the repository, falling back to 'homepage_uri' if it's missing.
+                        repo_url = gem.get("source_code_uri") or gem.get("homepage_uri") or ""
+                        
+                        repo_identifier = ""
+
+                        # We only want to parse Github URLs to get the owner/repo format
+                        if repo_url and "github.com" in repo_url.lower():
+
+                            # Strip away the .git extension and any trailing slashes to normalize the URL
+                            clean_url = repo_url.replace(".git", "").strip("/")
+                            parts = clean_url.split("github.com/")
+                            if len(parts) > 1:
+
+                                # Split the remaining path by slashes, filtering out empty strings to handle messy URLs safely
+                                path_parts = [p.strip() for p in parts[1].split("/") if p.strip()]
+                                if len(path_parts) >= 2:
+
+                                    # Isolate exactly the first two segments to get the definitive 'owner/repo' layout
+                                    repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+                                    
+                        package_results[name] = repo_identifier
+                        
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- C# REGISTRY SEARCH ---
+        elif lang_clean in {"csharp", "c#", "cs"}:
+            
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+
+
+            # Construct the official high-performance NuGet search query endpoint for .NET packages
+            url = f"https://azuresearch-usnc.nuget.org/query?q={encoded_query}&take={max_limit}"
+            
+            # Execute the network request with a 6-second timeout
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+
+                # Parse the JSON response from the NuGet API
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # NuGet uniquely wraps its search results inside a root 'data' array
+                for item in data.get("data", []):
+                    
+                    # In the NuGet ecosystem, the package name is stored under the 'id' field
+                    name = item.get("id")  
+                    
+                    # Only process a valid package name and check also it is not already added
+                    if name and name not in package_results:
+
+
+                        # Extract the project URL to trace the source repository location
+                        repo_url = item.get("projectUrl", "") or ""
+                        
+                        repo_identifier = ""
+
+
+                        if repo_url and "github.com" in repo_url.lower():
+
+                            # Clean up the URL from common extensions or sub-paths
+                            clean_url = repo_url.replace(".git", "").strip("/")
+                            parts = clean_url.split("github.com/")
+                            if len(parts) > 1:
+
+                                # Split the remaining path by slashes, filtering out empty strings 
+                                # to safely handle any messy or malformed URLs
+                                path_parts = [p.strip() for p in parts[1].split("/") if p.strip()]
+                                if len(path_parts) >= 2:
+                                    
+                                    # Isolate exactly the first two segments to get the definitive 'owner/repo' format
+                                    repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+                                    
+                        package_results[name] = repo_identifier
+                        
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- PHP REGISTRY SEARCH ---
+        elif lang_clean == "php":
+
+
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+
+            # Construct the Packagist API search endpoint for PHP packages
+            url = f"https://packagist.org/search.json?q={encoded_query}&per_page={max_limit}"
+            
+            # Execute the network request with a 6-second timeout
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+
+                # Parse the JSON response from the Packagist API
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the array of returned PHP packages
+                for item in data.get("results", []):
+
+                    # Packagist natively returns names in a 'vendor/package' format 
+                    # which serves as the perfect package identifier
+                    name = item.get("name")
+                    
+                    # Only process the valid package name
+                    if name and name not in package_results:
+
+                        # Extract the repository URL field to trace back to the source code location
+                        repo_url = item.get("repository", "") or ""
+                        
+                        repo_identifier = ""
+
+                        # Parse the github url to get the owner/repo format
+                        if repo_url and "github.com" in repo_url.lower():
+
+
+                            # Strip away the .git extension and any trailing slashes to normalize the URL
+                            clean_url = repo_url.replace(".git", "").strip("/")
+                            parts = clean_url.split("github.com/")
+                            if len(parts) > 1:
+
+                                # Split the remaining path by slashes, filtering out empty strings to handle messy URLs safely
+                                path_parts = [p.strip() for p in parts[1].split("/") if p.strip()]
+                                if len(path_parts) >= 2:
+
+                                    # Isolate exactly the first two segments to get the definitive 'owner/repo' format
+                                    repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+                                    
+                        package_results[name] = repo_identifier
+                        
+                    if len(package_results) >= max_limit:
+                        break
+
+        # --- DART REGISTRY SEARCH---
+        elif lang_clean == "dart":
+
+
+            search_query = " ".join(keywords_list)
+            encoded_query = urllib.parse.quote(search_query)
+
+            # Construct the official endpoint for the Dart package ecosystem
+            url = f"https://pub.dartlang.org/api/search?q={encoded_query}"
+            
+            # Execute the initial search request with a 6-second timeout
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+
+                # Parse the JSON response from the Pub API
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the array of discovered Dart packages
+                for pkg in data.get("packages", []):
+
+                    # The package name is nested under the "package" key in the search results
+                    name = pkg.get("package")
+
+                    # Only process valid package name
+                    if name and name not in package_results:
+                        repo_identifier = ""
+                        
+                        # UNLIKE other registries, Pub's search API does NOT return the repository URL.
+                        # We are forced to make a second HTTP request to this package's specific detail endpoint 
+                        # to extract the repository information from its metadata.
+                        detail_url = f"https://pub.dartlang.org/api/packages/{name}"
+                        try:
+
+                            # Fetch the individual package metadata with a shorter 3-second timeout
+                            detail_req = urllib.request.Request(detail_url, headers=headers)
+                            with urllib.request.urlopen(detail_req, timeout=3) as detail_res:
+                                detail_data = json.loads(detail_res.read().decode('utf-8'))
+                                
+                                # Navigate to the 'pubspec' configuration fields
+                                pubspec = detail_data.get("latest", {}).get("pubspec", {})
+
+                                # Try to get the repository URL, falling back to the homepage URL if the repository field is empty
+                                repo_url = pubspec.get("repository") or pubspec.get("homepage") or ""
+                                
+                                # We only want to parse GitHub URLs to get the owner/repo format
+                                if repo_url and "github.com" in repo_url.lower():
+
+                                    # Strip away the .git extension and any trailing slashes to normalize the URL
+                                    clean_url = repo_url.replace(".git", "").strip("/")
+                                    parts = clean_url.split("github.com/")
+                                    if len(parts) > 1:
+
+                                        # Split the remaining path by slashes, filtering out empty strings to handle messy URLs safely
+                                        path_parts = [p.strip() for p in parts[1].split("/") if p.strip()]
+                                        if len(path_parts) >= 2:
+                                            
+                                            # Isolate exactly the first two segments to get the definitive 'owner/repo' format
+                                            repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+                        except Exception:
+                            
+                            # If the detail lookup fails (e.g., network timeout, 404), 
+                            # keep repo_identifier as an empty string and continue gracefully
+                            pass
+                            
+                        package_results[name] = repo_identifier
+                        
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- SCALA REGISTRY SEARCH ---
+        elif lang_clean in {"scala", "sc"}:
+            
+            # Inject a mandatory "scala" keyword requirement so the API returns Scala assets natively.
+            # This is crucial because Maven Central is primarily Java, and without this, 
+            # a search for "json" would return Java libraries instead of Scala ones.
+            search_query = " ".join(keywords_list) + " scala"
+            encoded_query = urllib.parse.quote(search_query)
+
+            # Construct the Maven Central Solr search API endpoint, requesting JSON format
+            url = f"https://search.maven.org/solrsearch/select?q={encoded_query}&rows={max_limit}&wt=json"
+            
+            # Execute the search request
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the Solr response documents
+                for doc in data.get("response", {}).get("docs", []):
+
+                    # Extract the standard Maven coordinates: Group ID, Artifact ID, and Latest Version
+                    g_id = doc.get("g")
+                    a_id = doc.get("a")
+                    v_id = doc.get("latestVersion")
+                    
+                    # Ensure all required Maven coordinates are present before proceeding
+                    if g_id and a_id and v_id:
+
+                        # Format the standard Maven package identifier (e.g., "org.scala-lang:scala-library")
+                        pkg_string = f"{g_id}:{a_id}"
+                        
+                        if pkg_string not in package_results:
+                            repo_identifier = ""
+                            
+                            # Resolve the directory layout path for the artifact
+                            # Convert Group ID to directory path (e.g., "org.scala-lang" -> "org/scala-lang")
+                            g_path = g_id.replace('.', '/')
+                            pom_url = f"https://repo1.maven.org/maven2/{g_path}/{a_id}/{v_id}/{a_id}-{v_id}.pom"
+                            
+                            try:
+
+                                # Fetch the raw XML content of the POM file to find the repository URL
+                                pom_req = urllib.request.Request(pom_url, headers=headers)
+                                with urllib.request.urlopen(pom_req, timeout=3) as pom_res:
+                                    
+                                    # Read and decode the XML, ignoring non-UTF-8 characters to prevent crashes
+                                    pom_content = pom_res.read().decode('utf-8', errors='ignore')
+                                    
+                                    # Fast lookahead for GitHub occurrences in the metadata
+                                    if "github.com/" in pom_content.lower():
+                                        parts = pom_content.split("github.com/")
+                                        for part in parts[1:]:
+
+                                            # 1. Grab up to the first 100 characters after github.com/
+                                            chunk = part[:100]
+                                            
+                                            # 2. Clean out common scm prefixes or typical XML structures
+                                            chunk = chunk.replace(".git", "").replace(":", "/")
+                                            
+                                            # 3. Use a regex to extract the first two valid URL path segments (owner/repo)
+                                            match = re.match(r'^([\w\-\.]+)/([\w\-\.]+)', chunk.strip("/"))
+                                            if match:
+                                                owner, repo = match.group(1), match.group(2)
+                                                
+                                                # Safety check to ensure we didn't capture an XML tag name
+                                                # (Maven POMs heavily use XML tags, and we don't want to extract a tag like <issues> as the owner)
+                                                if owner not in ["content", "properties", "tags"] and "<" not in owner:
+                                                    repo_identifier = f"{owner}/{repo}"
+                                                    break
+                            except Exception:
+
+                                # If the POM file is missing, private, or the network times out, fail silently
+                                pass
+                                
+                            package_results[pkg_string] = repo_identifier
+                            
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- KOTLIN REGISTRY SEARCH ---
+        elif lang_clean in {"kotlin", "kt", "kts"}:
+            search_query = " ".join(keywords_list)
+
+            # Appending 'kotlin' to target Kotlin/Multiplatform specific libraries.
+            # This is crucial because Maven Central is overwhelmingly Java, and without this filter, 
+            # a generic search would return Java libraries instead of Kotlin ones.
+            encoded_query = urllib.parse.quote(f"{search_query} kotlin")
+
+            # Construct the Maven Central Solr search API endpoint, requesting JSON format
+            url = f"https://search.maven.org/solrsearch/select?q={encoded_query}&rows={max_limit}&wt=json"
+            
+            # Execute the search request
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=6) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+                # Iterate through the Solr response documents
+                for doc in data.get("response", {}).get("docs", []):
+
+                    # Extract the standard Maven coordinates: Group ID, Artifact ID, and Latest Version
+                    g_id = doc.get("g")
+                    a_id = doc.get("a")
+                    v_id = doc.get("latestVersion")
+                    
+                    if g_id and a_id and v_id:
+                        pkg_string = f"{g_id}:{a_id}"
+                        
+                        if pkg_string not in package_results:
+                            repo_identifier = ""
+                            
+                            # Resolve the directory layout path for the artifact
+                            # Convert Group ID to directory path (e.g., "org.jetbrains.kotlinx" -> "org/jetbrains/kotlinx")
+                            g_path = g_id.replace('.', '/')
+                            pom_url = f"https://repo1.maven.org/maven2/{g_path}/{a_id}/{v_id}/{a_id}-{v_id}.pom"
+                            
+                            try:
+
+                                # Fetch the raw XML content of the POM file to find the repository URL
+                                pom_req = urllib.request.Request(pom_url, headers=headers)
+                                with urllib.request.urlopen(pom_req, timeout=3) as pom_res:
+
+                                    # Read and decode the XML, ignoring non-UTF-8 characters to prevent crashes
+                                    pom_content = pom_res.read().decode('utf-8', errors='ignore')
+                                    
+                                    # Fast lookahead for GitHub occurrences in the metadata
+                                    if "github.com/" in pom_content.lower():
+
+                                        # Split the XML content by "github.com/" to inspect what comes directly after the domain
+                                        parts = pom_content.split("github.com/")
+                                        for part in parts[1:]:
+
+                                            # 1. Grab up to the first 100 characters after github.com/
+                                            chunk = part[:100]
+                                            
+                                            # 2. Clean out common scm prefixes or typical XML structures
+                                            chunk = chunk.replace(".git", "").replace(":", "/")
+                                            
+                                            # 3. Use a regex to extract the first two valid URL path segments (owner/repo)
+                                            match = re.match(r'^([\w\-\.]+)/([\w\-\.]+)', chunk.strip("/"))
+                                            if match:
+                                                owner, repo = match.group(1), match.group(2)
+                                                
+                                                # Safety check to ensure we didn't capture an XML tag name
+                                                # (Maven POMs heavily use XML tags, and we don't want to extract a tag like <issues> as the owner)
+                                                if owner not in ["content", "properties", "tags"] and "<" not in owner:
+                                                    repo_identifier = f"{owner}/{repo}"
+                                                    break
+                            except Exception:
+
+                                # If the POM file is missing, private, or the network times out, fail silently
+                                pass
+                                
+                            package_results[pkg_string] = repo_identifier
+                            
+                    if len(package_results) >= max_limit:
+                        break
+
+
+        # --- SWIFT REGISTRY SEARCH ---
+        elif lang_clean == "swift":
+            search_query = " ".join(keywords_list)
+
+            # Querying public GitHub repositories matching keywords and explicitly written in Swift.
+            # Similar to C/C++, Swift doesn't have a single centralized registry API that easily exposes 
+            # GitHub repo URLs, so we rely on GitHub's search API with a language qualifier.
+            encoded_query = urllib.parse.quote(f"{search_query} language:swift")
+            url = f"https://api.github.com/search/repositories?q={encoded_query}&per_page={max_limit}"
+            
+            # Providing a clean agent header to ensure seamless public API delivery.
+            # GitHub's API is strict about headers, so we copy the base headers and overwrite them 
+            # with a standard browser User-Agent and the specific GitHub v3 JSON accept type.
+            swift_headers = headers.copy()
+            swift_headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+            swift_headers['Accept'] = 'application/vnd.github.v3+json'
+            
+            req = urllib.request.Request(url, headers=swift_headers)
+            try:
+
+                # Execute the GitHub API request
+                with urllib.request.urlopen(req, timeout=6) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    
+                    # Extract the definitive "owner/repository" package identifier layout
+                    for item in data.get("items", []):
+                        name = item.get("name") # Package/Library name footprint
+                        full_name = item.get("full_name")  # e.g, "apple/swift-nio"
+                        
+                        # Map the repo name to its full GitHub path if valid and not already added
+                        if name and full_name and name not in package_results:
+                            package_results[name] = full_name
+
+                        # Stop processing early if we hit the requested limit    
+                        if len(package_results) >= max_limit:
+                            break
+            except Exception:
+
+                # Direct fallback safety layout mapping raw inputs to empty targets if network flags trip.
+                # If the GitHub API fails (e.g., rate limit, network error), we don't crash. 
+                # Instead, we map the raw user keywords to empty strings to signal the search was attempted but failed.
+                for token in keywords_list:
+                    package_results[token.lower()] = ""
+
+
+
+        # --- PYTHON REGISTRY SEARCH ---
+        elif lang_clean in {"python", "py"}:
+
+            # UNLIKE other languages, PyPI's search API is notoriously bad at returning GitHub URLs.
+            # Instead, we must iterate through the keywords and do an exact package name lookup 
+            # for each one individually to access the rich metadata JSON.
+            for token in keywords_list:
+
+                # Enforce the limit before making more requests
+                if len(package_results) >= max_limit:
+                    break
+
+                # Clean the keyword of whitespace, skip if it's empty    
+                safe_token = token.strip()
+                if not safe_token:
+                    continue
+
+                # URL-encode the exact package name and construct the PyPI JSON endpoint    
+                encoded_token = urllib.parse.quote(safe_token)
+                url = f"https://pypi.org/pypi/{encoded_token}/json"
+                
+                req = urllib.request.Request(url, headers=headers)
+                try:
+
+                    # Execute the network request with a short 3-second timeout since we might be looping
+                    with urllib.request.urlopen(req, timeout=3) as response:
+                        data = json.loads(response.read().decode('utf-8'))
+                        
+                        # Validate that the package actually exists by checking for the 'version' key
+                        info_block = data.get("info", {})
+                        if info_block and "version" in info_block:
+                            name = info_block.get("name") or safe_token
+                            
+                            # Only process valid package name
+                            if name not in package_results:
+                                repo_identifier = ""
+                                
+                                # PyPI provides a dictionary of various links for the project
+                                project_urls = info_block.get("project_urls") or {}
+                                
+                                # Define a prioritized list of key substrings to look for.
+                                # We want "Source" or "Repository" over "Homepage" or "Bug Tracker"
+                                keys_to_check = ["source", "repository", "homepage", "source code", "tracker"]
+                                repo_url = ""
+                                
+                                # Iterate through our priority list and do a case-insensitive substring match 
+                                # against the actual keys in the project_urls dictionary
+                                for key in keys_to_check:
+                                    matched_url = next((v for k, v in project_urls.items() if key in k.lower()), "")
+                                    if matched_url:
+                                        repo_url = matched_url
+                                        break
+
+                                # Fall back to the general 'home_page' field if none of the project_urls matched        
+                                if not repo_url:
+                                    repo_url = info_block.get("home_page") or ""
+
+                                # If we found a URL and it points to GitHub, parse it for the owner/repo format    
+                                if repo_url and "github.com" in repo_url.lower():
+                                    # Clean up trailing extensions or tracking routes
+                                    clean_url = repo_url.replace(".git", "").strip("/")
+                                    parts = clean_url.split("github.com/")
+                                    if len(parts) > 1:
+
+                                        # Split the remaining path by slashes, filtering out empty strings to handle messy URLs safely
+                                        path_parts = [p.strip() for p in parts[1].split("/") if p.strip()]
+                                        if len(path_parts) >= 2:
+                                            
+                                            # Isolate the definitive 'owner/repo' key configuration
+                                            repo_identifier = f"{path_parts[0]}/{path_parts[1]}"
+                                            
+                                package_results[name] = repo_identifier
+                                
+                except urllib.error.HTTPError as e:
+
+                    # CRITICAL: If the exact package name doesn't exist, PyPI returns a 404.
+                    # We must catch this and silently continue to the next keyword, 
+                    # otherwise a single typo would crash the entire Python search block.
+                    if e.code == 404:
+                        continue
+
+                    # If it's a different HTTP error (like 500 or 403), raise it so the outer try/except can handle it
+                    raise e
+
+        else:
+
+            # Catch-all fallback for any language that didn't match the specific if/elif blocks above.
+            # We return a structured JSON error so the LLM understands the tool failed and why.
+            return json.dumps({"status": "error", "message": f"Unsupported registry language: '{language}'"})
+
+        # If the package name extraction successful, serialize the final dictionary of 
+        # package names and repo identifiers into a JSON string for the LLM to parse.
+        return json.dumps(package_results)
+    
+    # If any unhandled error occurs (e.g., a catastrophic network failure, JSON serialization error, 
+    # or a bug in the URL parsing logic), this catches it to prevent the TUI from crashing entirely.
+    except Exception as e:
+        return json.dumps({"status": "error", "message": f"Registry lookup failed: {str(e)}"})
+
+
 
 # ─────────────────────────────────────────────
 # FIND REPO STRUCTURE 
@@ -1520,7 +2409,8 @@ search_repos,
 with_temp_file,
 find_repo_structure,
 fetch_file,
-save_string_to_file   
+save_string_to_file,   
+search_language_registry,
 
 ]
 

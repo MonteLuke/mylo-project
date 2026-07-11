@@ -36,7 +36,6 @@ PROMPT_FILE = config_dir / "SYSTEM_PROMPT.md"
 
 
 
-
 # Base identity string
 base_identity = """ 
 # RULES:
@@ -206,33 +205,47 @@ def format_compact_tokens(count: int) -> str:
         return f"{value:.1f}M".replace(".0M", "M")
 
 
-
 def get_model_token_prices(model_name: str, provider_hint: str = "") -> list[float]:
     """
-    Fetches price per token from litellm github repo
+    Fetches price per token from litellm github repo with provider-specific fallbacks.
     """
+    # URL pointing to the massive, community-maintained JSON file of LLM pricing
     LITELLM_PRICING_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+    
+    # Path to store the JSON locally so we don't spam GitHub with requests on every message
     CACHE_FILE = os.path.expanduser("~/.mylo_tokencost_cache.json")
+    
+    # Cache Time-To-Live: 86400 seconds = 24 hours. After this, a fresh copy will be downloaded.
     CACHE_TTL = 86400
     
+    # Dictionary that will hold all the model pricing data
     matrix = {}
 
     # 1. Load from local cache
+    # Check if the cache file exists on disk
     if os.path.exists(CACHE_FILE):
+        # Check if the file's last modified time is less than 24 hours ago
         if time.time() - os.path.getmtime(CACHE_FILE) < CACHE_TTL:
             try:
+                # Load the cached JSON data into our matrix dictionary
                 with open(CACHE_FILE, "r") as f:
                     matrix = json.load(f)
             except Exception:
+                # If the JSON file is corrupted, fail silently and let the code fall through to re-download it
                 pass
 
+    # 2. Fetch from GitHub if cache was missing or expired
     if not matrix:
         try:
+            # Download the raw JSON file from GitHub with a 5-second timeout
             with urllib.request.urlopen(LITELLM_PRICING_URL, timeout=5) as response:
                 matrix = json.loads(response.read().decode())
+                # Save the freshly downloaded data to the local cache file for future use
                 with open(CACHE_FILE, "w") as f:
                     json.dump(matrix, f)
         except Exception:
+            # FALLBACK: If the network is down or GitHub blocks the request, try to load the 
+            # old, expired cache file anyway. It's better to show slightly outdated pricing than no pricing at all.
             if os.path.exists(CACHE_FILE):
                 try:
                     with open(CACHE_FILE, "r") as f:
@@ -240,36 +253,54 @@ def get_model_token_prices(model_name: str, provider_hint: str = "") -> list[flo
                 except Exception:
                     pass
 
+    # 3. Lookup: Find the specific model in the matrix
+    # Normalize the model name to lowercase and strip whitespace to ensure consistent matching
     model_clean = model_name.strip().lower()
     model_data = {}
 
-    # 3. Lookup: Try an exact match first
+    # Try an exact match first (fastest method)
     if model_clean in matrix:
         model_data = matrix[model_clean]
+    
+    # If no exact match, perform a fuzzy substring match.
+    # This handles cases where the API returns "openai/gpt-4o" but the matrix key is just "gpt-4o"
     elif model_clean and model_clean != "unknown":
-        # Fuzzy match (handles layout variants like mapping "gpt-4o" to "openai/gpt-4o")
         for key, data in matrix.items():
             key_lower = key.lower()
+            # Check if the model name is inside the key, or the key is inside the model name.
+            # Also verify the entry actually contains pricing data to avoid false positives.
             if (model_clean in key_lower or key_lower in model_clean) and "input_cost_per_token" in data:
                 model_data = data
                 break
 
-    #If missing, default to typical industry rates based on provider context
+    # 4. Fallback Baselines: If the model is too new, local, or missing from LiteLLM
     if not model_data or model_clean == "unknown":
         provider = provider_hint.lower()
+        
+        # Local/self-hosted models have no per-token cost
+        if "ollama" in provider:
+            return [0.0, 0.0]
+        
+        # Cloud/API Provider baselines (using scientific notation for tiny fractions of a cent)
+        # e.g., 2.5e-06 is $0.0000025 per token
         if "openai" in provider or "gpt" in model_clean:
-            return [2.5e-06, 10.0e-06]    # Generic GPT-4o Standard Baseline
+            return [2.5e-06, 10.0e-06]  # Standard GPT-4o baseline
         elif "anthropic" in provider or "claude" in model_clean:
-            return [3.0e-06, 15.0e-06]    # Generic Claude-3.5-Sonnet Baseline
+            return [3.0e-06, 15.0e-06]    # Standard Claude-3.5-Sonnet baseline
         elif "google" in provider or "gemini" in model_clean:
-            return [0.075e-06, 0.3e-06]   # Generic Gemini Flash Baseline
+            return [0.075e-06, 0.3e-06]   # Standard Gemini Flash baseline
+        # HuggingFace provider baseline (estimated low-cost inference rate)
+        elif "huggingface" in provider or "hf" in provider:
+            return [0.1e-06, 0.1e-06]
         else:
+            # Absolute fallback for completely unknown providers
             return [0.0, 0.0]
 
-    return [round(model_data.get("input_cost_per_token", 0.0), 8), round(model_data.get("output_cost_per_token", 0.0),8)]
-
-
-
+    # 5. Return the exact pricing if found in the matrix.
+    # .get(key, 0.0) ensures we return 0.0 if the key is somehow missing from a valid model entry.
+    # round(..., 8) prevents weird floating-point math artifacts (like 2.5000000000000004e-06)
+    return [round(model_data.get("input_cost_per_token", 0.0), 8), 
+            round(model_data.get("output_cost_per_token", 0.0), 8)]
 
 
 
@@ -1138,16 +1169,16 @@ class Mylo(App):
             input_box.text = ""
 
             # 2. Extract the actual command
-            bash_command = user_text[5:].strip()
+            command = user_text[5:].strip()
 
             # 3. write the command result onto to the chat-container 
             chat_log = self.query_one("#chat-container", RichLog)
-            chat_log.write(f"\n[bold #1C4FF5] Executing Command:[/bold #1C4FF5] `{bash_command}`")
+            chat_log.write(f"\n[bold #1C4FF5] Executing Command:[/bold #1C4FF5] `{command}`")
             chat_log.write("")
             try:
                 # Run the process locally using subprocess
                 result = subprocess.run(
-                    bash_command, 
+                    command, 
                     shell=True, 
                     capture_output=True, 
                     text=True, 
@@ -1310,25 +1341,23 @@ class Mylo(App):
                     # Different LLM providers (OpenAI vs Anthropic vs Groq format token usage in wildly different places. This block checks all known locations.
                     if hasattr(response, "usage_metadata") and response.usage_metadata:
                         meta = response.usage_metadata
-                        input_tokens = meta.get("input_tokens") or meta.get("prompt_token_count") or meta.get("prompt_tokens") or 0
-                        output_tokens = meta.get("output_tokens") or meta.get("candidates_token_count") or meta.get("completion_tokens") or 0
+                        input_tokens = meta.get("input_tokens") or meta.get("prompt_tokens") or 0
+                        output_tokens = meta.get("output_tokens") or meta.get("completion_tokens") or 0
+
+                    # Ollama metadata extraction    
                     elif hasattr(response, "response_metadata") and response.response_metadata:
                         meta = response.response_metadata
-                        usage_dict = meta.get("token_usage") or meta.get("usage") or meta or {}
-
-                        if isinstance(usage_dict, dict):
-                            input_tokens = usage_dict.get("prompt_tokens") or usage_dict.get("input_tokens") or usage_dict.get("prompt_eval_count") or 0
-                            output_tokens = usage_dict.get("completion_tokens") or usage_dict.get("output_tokens") or usage_dict.get("eval_count") or 0
-                    
-
+                        input_tokens = meta.get("prompt_eval_count") or meta.get("input_tokens") or 0
+                        output_tokens = meta.get("eval_count") or meta.get("output_tokens") or 0
+                        
                     step_tokens = input_tokens + output_tokens 
 
                     # Fallback if the specific in/out tokens were missing but a total was provided
-                    if step_tokens == 0:
-                        step_tokens = (
-                            (hasattr(response, "usage_metadata") and response.usage_metadata.get("total_tokens")) or
-                            (isinstance(usage_dict, dict) and usage_dict.get("total_tokens")) or 0
-                        )
+                    if step_tokens == 0 and ("huggingface" in str(model_name).lower() or "hf" in str(model_name).lower()):
+                        raw_content = response.content
+                        if isinstance(raw_content, str):
+                            output_tokens = max(1, len(raw_content) // 4)  # ~4 characters per token baseline
+                            step_tokens = output_tokens
 
                     # Fetch price per token (Both input and output) dynamically using get_model_token_prices
                     input_rate, output_rate = get_model_token_prices(str(actual_model_string), provider_hint = str(model_name))

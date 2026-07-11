@@ -4,7 +4,7 @@ An agent build with Langchain and Textual for Github and Gitlab repo analysis.
 
 ## About Mylo
 
-The main goal of Mylo is not to be another coding agent, but an agent that help you to find and analyse code made by other developers in a more easier and simple way. This will allow you to find repos that may fix your current problem or may suitable for your current or future projects :)
+The main goal of Mylo is not to be another coding agent, but an agent that help you to find and analyse code made by other developers in a more easier and simple way. This will allow you to find repos and libraries that may fix your current problem or may suitable for your current or future projects :)
 
 
 ## Installation
@@ -23,7 +23,7 @@ mylo
 
 ## Main Features
 
-* Supports models from providers such as OpenAI, Anthropic, Google, and Groq via standard API keys. Support for additional providers is coming soon. (The api keys are stored in ~/mylo-config/.env)
+* Supports models from providers such as OpenAI, Anthropic, Google, Groq and Huggingface via standard API keys. It also supports local models hosted using Ollama (run the model using ollama, keep it active and type the model name that is running in the model profile config window's "Model Name" input box). The api keys are stored in ~/mylo-config/.env
 
 * Allow you to rewrite and modify the system prompt of the agent (the system prompt can be found in ~/mylo-config/SYSTEM_PROMPT.md )
 
@@ -32,6 +32,8 @@ mylo
 * Each model profile shares the same memory (or context). Therefore you can switch between multiple model with different memory limit in the same session.
 
 * The TUI displays the total token usage for each query and the total cumulative token (which is the total token usage by that model profile in one session). The token counting is seperate for each model profile that you use.
+
+* Allow you to execute inline local stateless commands in \cmd {command} format, without closing the tui.
 
 * Allows you to add github and gitlab tokens for more api requests by the agent. (The tokens are stored in ~/mylo-config/.env)
 
@@ -49,7 +51,9 @@ memory limit is the the maximum number of tokens passed to the LLM as conversati
 
 - Mylo can find names of repos from github and gitlab based on your specific needs
 
-- It can show the file structure of a repository
+- Mylo can find names of language specific libraries from their official registry and their corresponding repo names based on your needs. (Currently it will not support lua since LuaRock doesnt expose user friendly search api. And for c and cpp, agent uses github search api, because these languages dont have a centralised registry and search api) 
+
+- It can show the file structure of a repository (This also work for repositories of libraries)
 
 - It can fetch / retrieve any files from a repository such as readme.md (you can ask it to retrive a file by specifying the path of the file in the repo (folder/file format). if it is not inside any folder, then just specify only the filename ).
 
