@@ -7,9 +7,9 @@
     <style>
         /* --- Ocean & Octopus Color Palette --- */
         :root {
-    --ocean-top: #086a85;       /* Dark teal tint */
-    --ocean-mid: #08516b;       /* Vibrant subsurface cyan */
-    --ocean-bottom: #02395e;    /* Deep trench black */
+    --ocean-top: #086a85;       
+    --ocean-mid: #08516b;       
+    --ocean-bottom: #02395e;    
     
     --midnight-blue: #002533;
     --sea-foam: #00f5ff;        /* Boosted neon cyan */
@@ -35,9 +35,9 @@
     padding: 0;
 }
 
-/* --- Hero Section --- */
+
 header {
-    /* CHANGED: Fades completely to transparent at the bottom so it melts into the body */
+    /* Fades completely to transparent at the bottom so it blends into the body */
     background: linear-gradient(180deg, rgba(28, 37, 65, 0.9) 0%, rgba(11, 19, 43, 0.5) 60%, transparent 100%);
     text-align: center;
     padding: 6rem 1rem 5rem 1rem;
@@ -72,7 +72,7 @@ header {
         h1 {
             font-size: 3.2rem;
             color: var(--sea-foam);
-            margin-top: -15px;          /* 🌟 FIXED: Deletes the invisible top wall pushing it down */
+            margin-top: -15px;          
             line-height:1.1;
             margin-bottom: 0.5rem;   /* Leaves a clean, balanced gap for the tagline below it */
             letter-spacing: -0.5px;
@@ -109,7 +109,7 @@ h2::after {
     position: absolute;
     bottom: -2px;
     left: 0;
-    width: 100%; /* CHANGED: Base width is now 100% so transforms can scale it cleanly */
+    width: 100%; 
     height: 2px;
     background: var(--sea-foam);
     box-shadow: 0 0 8px var(--sea-foam), 0 0 3px var(--bioluminescent);
@@ -120,7 +120,7 @@ h2::after {
     animation: shore-wave 16s ease-in-out infinite;
 }
 
-/* --- Calmed & Staggered Wave Randomizer (Kept your exact unique timings) --- */
+/* --- Calmed & Staggered Wave Randomizer --- */
 h2:nth-of-type(1)::after { animation-duration: 26s; animation-delay: 0s; }
 h2:nth-of-type(2)::after { animation-duration: 23s; animation-delay: 0s; }
 h2:nth-of-type(3)::after { animation-duration: 29s; animation-delay: 0s; }
@@ -129,8 +129,7 @@ h2:nth-of-type(5)::after { animation-duration: 26s; animation-delay: 0s; }
 h2:nth-of-type(6)::after { animation-duration: 35s; animation-delay: 0s; } 
 h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; } 
 
-/* --- High-Performance GPU Wave Physics --- */
-/* --- Active & Fluid Wave Physics (Reduced Delays) --- */
+
 @keyframes shore-wave {
     0% {
         transform: scaleX(0.08);
@@ -142,7 +141,7 @@ h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; }
         box-shadow: 0 0 15px var(--sea-foam);
     }
     50% {
-        transform: scaleX(1); /* REDUCED: Holds for just a tiny split-second split (5% instead of 15%) */
+        transform: scaleX(1); /* Holds for just a tiny split-second split */
         opacity: 0.85;
         box-shadow: 0 0 15px var(--sea-foam);
     }
@@ -152,7 +151,7 @@ h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; }
         box-shadow: 0 0 4px var(--bioluminescent);
     }
     100% {
-        transform: scaleX(0.08); /* REDUCED: Instantly bounces back into the next growth cycle */
+        transform: scaleX(0.08); /* Instantly bounces back into the next growth cycle */
         opacity: 0.3;
     }
 }
@@ -270,7 +269,6 @@ h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; }
         }
 
         footer {
-    /* Kept your gorgeous deep abyss blue gradient */
     background: linear-gradient(180deg, #051636 0%, #020c24 50%, #010512 100%);
     border-top: 1px solid rgba(72, 202, 228, 0.15);
     box-shadow: 0 -10px 30px rgba(0, 180, 216, 0.05);
@@ -280,22 +278,22 @@ h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; }
     z-index: 2;
 }
 
-/* --- The Flexbox Alignment Engine --- */
+/* --- The Flexbox Alignment --- */
 .footer-container {
     max-width: 1000px;
     margin: 0 auto;
     display: flex;
-    justify-content: center; /* 🌟 FIXED: Forces the copyright text to the absolute middle */
+    justify-content: center; /* Forces the text to the absolute middle */
     align-items: center;
     position: relative;      /* Sets the anchor point for the left links */
-    min-height: 80px;        /* Ensures ample breathing room */
+    min-height: 80px;        /* Ensures breathing room */
 }
 
 .footer-left {
-    position: absolute;      /* 🌟 FIXED: Pins links to the left edge without pushing the text */
+    position: absolute;      /* Pins links to the left edge without pushing the text */
     left: 0;
     display: flex;
-    flex-direction: column;  /* Keeps your vertical stack */
+    flex-direction: column;  
     gap: 0.6rem;
     align-items: flex-start;
 }
@@ -310,7 +308,7 @@ h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; }
     display: flex;
     text-align:center;
     flex-direction: column;
-    align-items: center; /* Aligns both rows beautifully to the right edge */
+    align-items: center; /* Aligns both rows to the right edge */
 }
 
 .tagline-row {
@@ -319,9 +317,9 @@ h2:nth-of-type(7)::after { animation-duration: 38s; animation-delay: 0s; }
 
 .license-row {
     margin: 0;
-    margin-top: 0.6 rem;       /* 🌟 CONTROL SPACE: Adjust this value to add more or less gap */
-    font-size: 0.85rem;       /* Slightly smaller text makes it look secondary and clean */
-    opacity: 0.65;            /* Fades it slightly so it doesn't distract from your tagline */
+    margin-top: 0.6 rem;       
+    font-size: 0.85rem;       /* Slightly smaller text to make it look secondary and clean */
+    opacity: 0.65;          
     font-weight: 500;
 }
 
@@ -346,9 +344,9 @@ footer, footer p, footer a {
 }
 
 .footer-logo {
-    height: 2.3rem;         /* Scales the image down to match your text font size perfectly */
+    height: 2.3rem;         /* Scales the image down to match the text font size */
     width: auto;            /* Keeps the logo's aspect ratio locked */
-    vertical-align: middle; /* FIXED: Keeps the logo and the text perfectly level on the same line */
+    vertical-align: middle; /* Keeps the logo and the text perfectly level on the same line */
     margin-right: 0.4rem;   /* Adds a tiny bit of breathing room before the text starts */
 }
 
@@ -375,7 +373,7 @@ footer, footer p, footer a {
             }
         }
 
-        /* --- Floating Deep Sea Bubbles (Fixed Layering) --- */
+        /* --- Floating Deep Sea Bubbles --- */
 .bubble-wrapper {
     position: fixed;
     top: 0;
@@ -397,7 +395,7 @@ footer, footer p, footer a {
     animation: float-up infinite linear;
 }
 
-/* Distribution layouts */
+/* Bubble Distribution layouts */
 .individual-bubble:nth-child(1) { left: 10%; width: 35px; height: 35px; animation-duration: 12s; animation-delay: 0s; }
 .individual-bubble:nth-child(2) { left: 25%; width: 18px; height: 18px; animation-duration: 18s; animation-delay: 2s; }
 .individual-bubble:nth-child(3) { left: 40%; width: 45px; height: 45px; animation-duration: 14s; animation-delay: 5s; }
@@ -450,8 +448,8 @@ footer, footer p, footer a {
     filter: drop-shadow(0 0 8px rgba(72, 202, 228, 0.35)); 
 }
 
-/* Varying font-sizes creates a 3D depth effect (smaller fish look farther away).
-  Negative delays force them to be pre-distributed across the screen instantly on load!
+/* Varying fish-sizes creates a 3D depth effect (smaller fish look farther away).
+  Negative delays force them to be pre-distributed across the screen instantly on load
 */
 .individual-fish:nth-child(1)  { top: 4%;  font-size: 1.5rem; animation-duration: 35s; animation-delay: -5s; }
 .individual-fish:nth-child(2)  { top: 9%;  font-size: 0.9rem; animation-duration: 58s; animation-delay: -14s; }
@@ -480,7 +478,7 @@ footer, footer p, footer a {
         opacity: 0;
     }
     8% {
-        opacity: 0.22; /* Keeps them beautifully faint so they stay in the background */
+        opacity: 0.22; /* Keeps them faint so they stay in the background */
     }
     92% {
         opacity: 0.22;
@@ -491,12 +489,11 @@ footer, footer p, footer a {
     }
 }
 
-/* --- New Utility Class to Override Direction --- */
 .individual-fish.swim-right {
     animation-name: swim-right; /* Swaps the animation path */
 }
 
-/* --- High-Performance Left-to-Right Animation --- */
+/* --- Left-to-Right Animation --- */
 @keyframes swim-right {
     0% {
         /* Starts off-screen to the left (-15vw) and scaleX(-1) flips the emoji face forward */
@@ -504,7 +501,7 @@ footer, footer p, footer a {
         opacity: 0;
     }
     8% {
-        opacity: 0.22; /* Keeps the same background stealth level */
+        opacity: 0.22;
     }
     92% {
         opacity: 0.22;
@@ -516,7 +513,7 @@ footer, footer p, footer a {
     }
 }
 
-/* Guarantees your text containers ride safely above the aquarium layer */
+/* Guarantees the text containers ride safely above the aquarium layer */
 header, .container, footer {
     position: relative;
     z-index: 2;
