@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mylo-agent"
-version = "1.0.4"
+version = "1.0.5"
 
 description = "An agent for analyzing GitHub and GitLab repositories."
 readme = "README.md"
