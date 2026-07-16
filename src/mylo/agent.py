@@ -1302,8 +1302,8 @@ class Mylo(App):
             # ─── 2. THE AGENT LOOP ───────────────────────────────────────────
             # LLMs with tools require a loop: the LLM might decide to call a tool, 
             # and after seeing the tool's output, it might call ANOTHER tool, or finally respond.
-            # We cap this at 5 loops to prevent infinite execution loops.
-            max_loops = 5
+            # We cap this at 100 loops to prevent infinite execution loops.
+            max_loops = 100
             loop_count = 0
 
             while loop_count < max_loops:
