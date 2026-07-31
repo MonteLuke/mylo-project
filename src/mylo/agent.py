@@ -17,7 +17,7 @@ from textual.screen import ModalScreen
 from textual.containers import Vertical, Horizontal, ScrollableContainer, Container
 from textual.widgets import TextArea, RichLog, Header, Footer, LoadingIndicator , Select, Input, Label, Button
 from textual.binding import Binding
-from textual import work
+from textual import work, on
 from rich.panel import Panel
 from rich.markdown import Markdown as RichMarkdown
 from .tools import tools
@@ -305,8 +305,8 @@ def get_model_token_prices(model_name: str, provider_hint: str = "") -> list[flo
 
 
 class GitTokenModal(ModalScreen):
-    """A direct write, modify, and delete TUI screen for git provider (Github and Gitlab) API tokens."""
-    
+    """A direct write, modify, and delete TUI screen for git provider (GitHub, GitLab, and Kaggle) API credentials."""
+
     CSS = """
 GitTokenModal {
     align: center middle;
@@ -315,10 +315,11 @@ GitTokenModal {
 
 #modal-container {
     width: 60;                  
-    height: 19;                 
+    height: auto;               
+    max-height: 25;
     border: thick $primary;
     background: $surface;
-    padding: 0 2;               
+    padding: 0 2 1 2;           
 }
 
 #modal-title {
@@ -337,6 +338,11 @@ Select, Input {
     height: 3;                  
 }
 
+#username-container {
+    display: none;
+    height: auto;
+}
+
 #button-bucket {
     margin-top: 1;              
     align: right middle;
@@ -349,128 +355,169 @@ Select, Input {
 """
 
     def compose(self) -> ComposeResult:
-        
-        # Vertical Container: this act as a column. All widgets yielded inside it and will be staked from top to bottom
+        # Vertical Container: acts as a column holding all modal widgets
         with Vertical(id="modal-container"):
 
-            #The header text for the window
+            # Header label
             yield Label("Manage API Tokens", id="modal-title")
 
-            #The hoster dropdown (Includes Github and Gitlab)            
+            # Provider selection dropdown
             yield Label("Select Provider:", classes="field-label")
-            
             yield Select(
-                options=[("GitHub", "github"), ("GitLab", "gitlab")],
-                value="github", # default to github
-                id="provider-select" # ID used to read this widget's value later in the code
+                options=[
+                    ("GitHub", "github"),
+                    ("GitLab", "gitlab"),
+                    ("Kaggle", "kaggle"),
+                ],
+                value="github",  # Defaults to github
+                id="provider-select"
             )
-            
-            yield Label("Token Value:", classes="field-label")
 
-            # Input box to type the token 
+            # Hidden container for Kaggle username input
+            with Vertical(id="username-container"):
+                yield Label("Kaggle Username:", classes="field-label")
+                yield Input(
+                    placeholder="Enter Kaggle Username...",
+                    id="username-input"
+                )
+
+            # Token input box
+            yield Label("Token Value:", classes="field-label")
             yield Input(
-                password=True, #masks the token while typing
-                placeholder="Paste token here to save/overwrite...", 
-                id="token-input" #ID used to read the widget's value later in the code
+                password=True,  # Masks the token characters
+                placeholder="Paste token here to save/overwrite...",
+                id="token-input"
             )
-            
-            # Horizontal Container: This act as a row. The buttons will be placed side by side 
+
+            # Action buttons
             with Horizontal(id="button-bucket"):
                 yield Button("Cancel", variant="default", id="cancel-btn")
                 yield Button("Delete Existing", variant="error", id="delete-btn")
                 yield Button("Save", variant="success", id="save-btn")
 
-    
-    # Textual's event handler that fires automatically whenever any button is pressed
+    # --- Reactive Event Listener for Dropdown Selection Changes ---
+    @on(Select.Changed, "#provider-select")
+    def on_provider_changed(self, event: Select.Changed) -> None:
+        """Dynamically show/hide the username field depending on whether Kaggle is selected."""
+        username_container = self.query_one("#username-container")
+        
+        if event.value == "kaggle":
+            # Show the username field when Kaggle is chosen
+            username_container.styles.display = "block"
+        else:
+            # Hide the username field for GitHub/GitLab
+            username_container.styles.display = "none"
+
+    # --- Button Click Handler ---
     def on_button_pressed(self, event: Button.Pressed) -> None:
 
-        # Close the modal window. Passing 'None' tells the parent screen that the user cancelled.
+        # 1. Cancel Action
         if event.button.id == "cancel-btn":
             self.dismiss(None)
             return
 
-        # --- Save Logic ---    
+        # 2. Save Action
         elif event.button.id == "save-btn":
-
-            # Get the provider (or hoster) and the token value
             provider = self.query_one("#provider-select").value
             token_val = self.query_one("#token-input").value.strip()
-            
-            # Validate that the user actually picked a provider from the dropdown
-            # (Select.NULL means the dropdown is untouched/default)
+
+            # Validate provider selection
             if not provider or provider is Select.NULL:
                 self.notify("Please select a provider")
                 return
-            
-            # Check whether the token isn't empty
-            elif not token_val:
+
+            # Validate token input
+            if not token_val:
                 self.notify("Please enter a valid token")
-                return 
-            
-            # Create an env variable
-            env_key = f"{str(provider).upper()}_TOKEN"
-            
-            # Read existing .env values to check the old state
-            env_vars = dotenv_values(ENV_FILE)
-            old_val = env_vars.get(env_key)
+                return
 
             try:
-                # Write the new token to the .env configuration file
-                set_key(ENV_FILE, env_key, token_val)
-                
-                # ONLY trigger notification if token already existed and is being changed
-                if old_val and old_val != token_val:
-                    self.notify(f"{str(provider).title()} token updated successfully")
-                
+                env_vars = dotenv_values(ENV_FILE)
+
+                # Special handling for Kaggle (requires both API_TOKEN and USERNAME)
+                if provider == "kaggle":
+                    username_val = self.query_one("#username-input").value.strip()
+                    if not username_val:
+                        self.notify("Please enter a Kaggle username")
+                        return
+
+                    # Save both KAGGLE_API_TOKEN and KAGGLE_USERNAME
+                    set_key(ENV_FILE, "KAGGLE_API_TOKEN", token_val)
+                    set_key(ENV_FILE, "KAGGLE_USERNAME", username_val)
+                    self.notify("Kaggle credentials saved successfully")
+
+                # GitHub and GitLab handling
+                else:
+                    env_key = f"{str(provider).upper()}_TOKEN"
+                    old_val = env_vars.get(env_key)
+
+                    set_key(ENV_FILE, env_key, token_val)
+
+                    if old_val and old_val != token_val:
+                        self.notify(f"{str(provider).title()} token updated successfully")
+                    else:
+                        self.notify(f"{str(provider).title()} token saved successfully")
+
+                # Trigger application model reload if method exists
                 if hasattr(self.app, "reload_active_model"):
                     self.app.reload_active_model()
-                    
+
+                self.dismiss(True)
+
             except Exception as e:
-                # Catch file permission errors or disk issues and show them to the user
-                self.notify(f"Failed to save token: {e}")
-            
-            #close the window
-            self.dismiss(True)
+                self.notify(f"Failed to save credentials: {e}")
 
-        # --- Delete Logic ---
+        # 3. Delete Action
         elif event.button.id == "delete-btn":
-
             provider = self.query_one("#provider-select").value
 
-            #revalidate the provider selection
             if not provider or provider is Select.NULL:
                 self.notify("No provider selected.")
                 return
 
-            env_key = f"{str(provider).upper()}_TOKEN"
             env_vars = dotenv_values(ENV_FILE)
-            
-            # Since the variables names are saved as in uppercase
             file_keys = {k.upper(): k for k in env_vars}
-            
-            # Check if our target key exists in uppercase-mapped dict, and make sure it isn't just an empty string
-            if env_key not in file_keys or not env_vars.get(file_keys[env_key]):
-                self.notify(f"No existing token found for {str(provider).title()}.")
-                return
 
             try:
+                # Special deletion logic for Kaggle (deletes both TOKEN and USERNAME)
+                if provider == "kaggle":
+                    has_token = "KAGGLE_API_TOKEN" in file_keys and env_vars.get(file_keys["KAGGLE_API_TOKEN"])
+                    has_user = "KAGGLE_USERNAME" in file_keys and env_vars.get(file_keys["KAGGLE_USERNAME"])
 
-                # passing the original casing (file_keys[env_key]) to unset_key
-                unset_key(ENV_FILE, file_keys[env_key])
+                    if not has_token and not has_user:
+                        self.notify("No existing Kaggle credentials found.")
+                        return
 
-                # Clear the text input box in the UI 
-                self.query_one("#token-input").value = ""
-                
-                # Reload the active model
+                    # Unset both keys if they exist
+                    if "KAGGLE_API_TOKEN" in file_keys:
+                        unset_key(ENV_FILE, file_keys["KAGGLE_API_TOKEN"])
+                    if "KAGGLE_USERNAME" in file_keys:
+                        unset_key(ENV_FILE, file_keys["KAGGLE_USERNAME"])
+
+                    # Clear UI inputs
+                    self.query_one("#token-input").value = ""
+                    self.query_one("#username-input").value = ""
+                    self.notify("Kaggle credentials deleted successfully")
+
+                # GitHub / GitLab deletion logic
+                else:
+                    env_key = f"{str(provider).upper()}_TOKEN"
+                    if env_key not in file_keys or not env_vars.get(file_keys[env_key]):
+                        self.notify(f"No existing token found for {str(provider).title()}.")
+                        return
+
+                    unset_key(ENV_FILE, file_keys[env_key])
+                    self.query_one("#token-input").value = ""
+                    self.notify(f"{str(provider).title()} token deleted successfully")
+
+                # Trigger application model reload
                 if hasattr(self.app, "reload_active_model"):
                     self.app.reload_active_model()
-                    
+
+                self.dismiss(True)
+
             except Exception as e:
-                self.notify(f"Failed to delete token: {e}")
-
-            # close the window    
-            self.dismiss(True)
-
+                self.notify(f"Failed to delete credentials: {e}")
 
 
 
@@ -1004,6 +1051,8 @@ class Mylo(App):
          
         os.environ.pop("GITHUB_TOKEN", None)
         os.environ.pop("GITLAB_TOKEN", None)
+        os.environ.pop("KAGGLE_API_TOKEN", None)
+
     
         # Re-read the config env. override=True forces it to update existing variables instead of skipping them
         load_dotenv(dotenv_path=ENV_FILE, override=True)
@@ -1046,6 +1095,7 @@ class Mylo(App):
 
             github_token = os.environ.get("GITHUB_TOKEN")
             gitlab_token = os.environ.get("GITLAB_TOKEN")
+            kaggle_token = os.environ.get("KAGGLE_API_TOKEN")
 
             # Ensure all core settings exist before trying to render the current config panel
             if provider and model_name and api_key:
@@ -1058,6 +1108,7 @@ class Mylo(App):
                     # Create boolean flags for the Config Panel
                     has_github = bool(github_token)
                     has_gitlab = bool(gitlab_token)
+                    has_kaggle = bool(kaggle_token)
                 
                     # Bundle the current config into a tuple
                     current_state = (
@@ -1066,7 +1117,8 @@ class Mylo(App):
                         model_name, 
                         self.memory_limit, 
                         has_github, 
-                        has_gitlab
+                        has_gitlab,
+                        has_kaggle
                     )
                     
                     #Compare the tuple against the last one displayed and only display if it is different
@@ -1080,7 +1132,8 @@ class Mylo(App):
                             f"* **Model:** `{model_name}`\n"
                             f"* **Memory Limit:** `{self.memory_limit}` tokens\n"
                             f"* **GitHub Token:** `{'Added' if github_token else 'Not Added'}`\n"
-                            f"* **Gitlab Token:** `{'Added' if gitlab_token else 'Not Added'}`"
+                            f"* **Gitlab Token:** `{'Added' if gitlab_token else 'Not Added'}`\n"
+                            f"* **Kaggle Token:** `{'Added' if kaggle_token else 'Not Added'}`"
                         )
                     
                         # Wrapping the markdown in a coloured border panel
@@ -1104,7 +1157,7 @@ class Mylo(App):
         self.base_llm = None
     
         # --- Create a dummy state if no active profile exist
-        fallback_state = ("NONE_ACTIVATED", None, None, None, False, False)
+        fallback_state = ("NONE_ACTIVATED", None, None, None, False, False,False)
     
         # check whether the tuple displayed is different from the previous one 
         if not hasattr(self, "_last_displayed_state") or self._last_displayed_state != fallback_state:
