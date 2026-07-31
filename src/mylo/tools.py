@@ -20,15 +20,14 @@ import urllib.error
 import re
 
 
-
 """
-You can add more language support to the AST based functions by adding the nesessary node name of the language
+You can add more language support to the AST extractor functions by adding the nesessary node name of the language
 in the dicts FUNCTION_NODE_TYPES and LANGUAGE_CLASS_NODE_TYPES. If the language is class based (like java and csharp),
 add the language name in the CLASS_BASED_LANGUAGES list. If this doesnt make the function support the language, then
-you can add language specifc conditions in the AST based functions
+you can add language specifc conditions in the functions
 
 
-Add more AST based functions by defining it in top level and add the function name and its purpose (also whether it needs extra arguments other than filepath) in the docstring of with_temp_file
+Add more AST extractor functions by defining it in top level and add the function name and its purpose (also whether it needs extra arguments other than filepath) in the docstring of with_temp_file
 function and add the function name in the func_map dictionary inside it. If the function doesnt require any extra arguments, add the function name in the no_arg_funcs dictionary below the func_map dictionary
 """
 
@@ -482,8 +481,371 @@ def find_function_docstring(file_path):
                     # Add the extracted docstring (or empty string if none found) to our dict
                     docstrings_map[func_name] = docstring
     
-    # Return the final dictionary formatted as a pretty-printed JSON string
-    return json.dumps(docstrings_map, indent=4)
+    # Return the final dictionary as a JSON string
+    return json.dumps(docstrings_map)
+
+
+
+# Find the global variables defined in the code along with their value and type (Doesnt support Java and C# because you cant truly define global variables (every variable are inside a class))
+
+GLOBAL_VARIABLE_NODE_TYPES = {
+    # Simple Assignment / Expression Families
+    "python":     ["expression_statement", "assignment"],
+    "ruby":       ["assignment"],
+    "php":        ["expression_statement", "assignment_expression"],
+    "lua":        ["assignment_statement"],
+
+    # Block / Keyword Declaration Families
+    "javascript": ["variable_declaration", "lexical_declaration"],
+    "typescript": ["variable_declaration", "lexical_declaration"],
+    "rust":       ["const_item","static_item"],
+    "go":         ["var_declaration", "const_declaration"],
+    "swift":      ["property_declaration"],
+    "kotlin":     ["property_declaration"],
+    "dart":       ["static_final_declaration_list","initialized_identifier_list"],
+
+    # Explicit C-Style Typename Fronting Families
+    "c":          ["declaration"],
+    "cpp":        ["declaration"],
+    "scala":      ["var_definition", "val_definition"],
+}
+
+def find_global_variables(file_path):
+    """
+    Finds top-level global variables across 14 languages.
+    Returns: {"var_name": ["type", "value"]}
+    """
+
+    # Detects the language and normalize the (e.g, c++ -> cpp)
+    raw_alias = get_language(file_path).lower()
+    lang_alias = "cpp" if raw_alias in ["cpp", "c++"] else raw_alias
+
+    # Check whether the language is supported, if not return {}
+    if lang_alias not in GLOBAL_VARIABLE_NODE_TYPES:
+        print(f"Language '{lang_alias}' is not tracked in your global configurations.")
+        return json.dumps({})
+
+    try:
+
+        # Generate the AST and read raw bytes
+        root_node = generate_ast(file_path)
+        with open(file_path, 'rb') as f:
+            source_bytes = f.read()
+
+    except Exception as e:
+        print(f"Error reading file context or AST mapping: {e}")
+        return json.dumps({})
+
+    # Helper function to convert an AST node back into readable source code string
+    def get_text(node):
+        if not node:
+            return ""
+        
+        # CRITICAL: Explicitly remove carriage returns (\r) which corrupt validation checks
+        # and clean up multi-line initializations
+        return source_bytes[node.start_byte:node.end_byte].decode('utf-8').replace('\r', '').strip()
+
+    # Helper function to guess the variable type based on the Tree-sitter node type string.
+    # This is essential for dynamically typed languages (Python, JS, Ruby) where the type 
+    # isn't explicitly written next to the variable name.
+    def infer_literal_type(value_node):
+        if not value_node:
+            return "unknown"
+        t = value_node.type
+        if "int" in t or t in ["integer", "number", "integer_literal", "decimal_integer_literal"]: return "int"
+        if "float" in t or t in ["decimal", "float_literal", "real_literal"]: return "float"
+        if "str" in t or "character" in t or t in ["string_literal", "line_str_literal"]: return "str"
+        if t in ["boolean", "true", "false", "boolean_literal"]: return "bool"
+        if t in ["list", "array", "slice_literal", "array_literal", "vector"]: return "list"
+        if t in ["dictionary", "object", "object_literal", "map_literal"]: return "dict"
+        
+        # Fallback to the raw AST type string if no match
+        return t
+
+    # Initialise the global variable dict
+    global_vars = {}
+
+    # Fetch the specific AST node types that represent variable declarations for the language
+    target_types = GLOBAL_VARIABLE_NODE_TYPES[lang_alias]
+
+    # --- 1. Flatten base nodes layer ---
+    # Different languages structure their root differently (some use a "program" wrapper, some don't).
+    # This loop creates a flat list of top-level nodes to iterate over.
+    base_nodes = []
+    if root_node.type == "program":
+        base_nodes.extend(root_node.children)
+    else:
+        for child in root_node.children:
+            if child.type == "program":
+                base_nodes.extend(child.children)
+            else:
+                base_nodes.append(child)
+
+    nodes_to_check = []
+    for node in base_nodes:
+
+        # UNWRAP EXRESSION_STATEMENTS: Some languages wrap assignments in an "expression_statement" node.
+        # We drill down to the actual assignment node inside if it matches our targets.
+        if node.type == "expression_statement" and node.named_child_count > 0:
+            inner_node = node.named_child(0)
+            if inner_node.type in target_types or node.type in target_types:
+                node = inner_node
+
+        # GO : Go wraps variable declarations (`var x int = 5`) inside a parent `var_declaration` node.
+        # The actual data we want (name, type, value) is inside the `var_spec` child.
+        if lang_alias == "go" and node.type in ["var_declaration", "const_declaration"]:
+            target_spec = "var_spec" if node.type == "var_declaration" else "const_spec"
+            for sub in node.children:
+                if sub.type == target_spec:
+                    nodes_to_check.append(sub)
+
+            # Skip adding the parent wrapper node        
+            continue
+
+        nodes_to_check.append(node)
+
+    # --- 2. PARSING LOOPS FOR THE STRUCTURAL FAMILIES ---
+    # We iterate through our flattened list and dispatch to language-specific parsing logic
+    for node in nodes_to_check:
+        if node.type not in target_types and node.type not in ["var_spec", "const_spec"]:
+            continue
+
+        var_name, var_type, var_value = "", "unknown", ""
+
+        # Special Language Intercept: RUST
+        # Rust uses `const_item` and `static_item`. The structure is flat: identifier -> type -> literal.
+        if lang_alias == "rust" and node.type in ["const_item", "static_item"]:
+            for child in node.children:
+                if child.type == "identifier":
+                    var_name = get_text(child)
+                elif child.type in ["primitive_type", "type_identifier"]:
+                    var_type = get_text(child)
+                elif "literal" in child.type or child.type in ["integer", "string", "boolean"]:
+                    var_value = get_text(child)
+
+            # Fallback to type inference if an explicit type wasn't provided (e.g., `const X = 5;`)        
+            if not var_type or var_type == "unknown":
+                var_type = infer_literal_type(node.child_by_field_name("value") or node.named_children[-1])
+
+
+        # Special Language Intercept: DART
+        # Dart's `static_final_declaration_list` is separated from its type identifier in the AST tree.
+        # We have to look BACKWARDS in the tree to find the type that applies to this list.
+        elif lang_alias == "dart" and node.type in ["static_final_declaration_list", "initialized_identifier_list"]:
+            parent_children = root_node.children if root_node.type == "program" else base_nodes
+            try:
+                my_idx = parent_children.index(node)
+
+                # If the node immediately preceding this list is a type_identifier, that is the required type
+                if my_idx > 0 and parent_children[my_idx - 1].type == "type_identifier":
+                    var_type = get_text(parent_children[my_idx - 1])
+            except ValueError:
+                pass
+
+            # Drill into the actual declaration to get name and value
+            decl = node.named_child(0) if node.named_child_count > 0 else node
+            if decl.type in ["static_final_declaration", "initialized_identifier"]:
+                for child in decl.children:
+                    if child.type == "identifier":
+                        var_name = get_text(child)
+                    elif "literal" in child.type or child.type == "string_literal":
+                        var_value = get_text(child)
+                        if not var_type or var_type == "unknown":
+                            var_type = infer_literal_type(child)
+
+        # Special Language Intercept: KOTLIN
+        # Kotlin uses `property_declaration` which nests the name/type inside a `variable_declaration` child.
+        elif lang_alias == "kotlin" and node.type == "property_declaration":
+            for child in node.children:
+                if child.type == "variable_declaration":
+                    for inner in child.children:
+                        if inner.type == "simple_identifier":
+                            var_name = get_text(inner)
+                        elif inner.type == "user_type":
+                            var_type = get_text(inner)
+                elif "literal" in child.type or child.type == "expression":
+                    var_value = get_text(child)
+            if not var_type or var_type == "unknown":
+                val_nodes = [c for c in node.children if "literal" in c.type]
+                if val_nodes:
+                    var_type = infer_literal_type(val_nodes[0])
+
+        # Special Language Intercept: SCALA
+        # Scala uses `val_definition` / `var_definition`. Straightforward left-to-right parsing.
+        elif lang_alias == "scala" and node.type in ["val_definition", "var_definition"]:
+            for child in node.children:
+                if child.type == "identifier":
+                    var_name = get_text(child)
+                elif child.type == "type_identifier":
+                    var_type = get_text(child)
+                elif "literal" in child.type or child.type == "string":
+                    var_value = get_text(child)
+
+
+        # Special Language Intercept: SWIFT
+        # Swift's `property_declaration` buries the name inside a `pattern` node and the type inside 
+        # a deeply nested `type_annotation` -> `user_type` -> `type_identifier` chain.
+        elif lang_alias == "swift" and node.type == "property_declaration":
+            pattern_node = node.child_by_field_name("pattern") or next((c for c in node.children if c.type == "pattern"), None)
+            if pattern_node:
+                ident_node = pattern_node.child_by_field_name("value") or pattern_node.named_child(0)
+                if ident_node:
+                    var_name = get_text(ident_node)
+            
+            # Extract type from deeply nested annotation
+            type_annot = next((c for c in node.children if c.type == "type_annotation"), None)
+            if type_annot:
+                user_type = next((c for c in type_annot.children if c.type == "user_type"), None)
+                if user_type:
+                    type_ident = next((c for c in user_type.children if c.type == "type_identifier"), None)
+                    if type_ident:
+                        var_type = get_text(type_ident)
+            
+            # Extract value (look for any literal node)
+            for child in node.children:
+                if "literal" in child.type or child.type == "line_string_literal":
+                    var_value = get_text(child)
+
+        # Special Language Intercept: CSHARP (C#)
+        # C# `field_declaration` nests things inside a `variable_declaration` -> `variable_declarator` chain.
+        elif lang_alias == "csharp" and node.type == "field_declaration":
+            var_decl = next((c for c in node.children if c.type == "variable_declaration"), None)
+            if var_decl:
+
+                # The first child of variable_declaration is always the type
+                type_node = var_decl.named_child(0)
+                if type_node:
+                    var_type = get_text(type_node)
+                
+                # Drill into the declarator to find the name and the assigned value
+                declarator = next((c for c in var_decl.children if c.type == "variable_declarator"), None)
+                if declarator:
+                    ident_node = next((c for c in declarator.children if c.type == "identifier"), None)
+                    if ident_node:
+                        var_name = get_text(ident_node)
+                    
+                    val_node = next((c for c in declarator.children if "literal" in c.type or c.type == "string_literal"), None)
+                    if val_node:
+                        var_value = get_text(val_node)
+
+        # Special Language Intercept: GO
+        # Go's `var_spec` lists identifiers, then types, then values sequentially as siblings.
+        elif lang_alias == "go" and node.type in ["var_spec", "const_spec"]:
+            for child in node.children:
+                if child.type == "identifier":
+                    var_name = get_text(child)
+                elif child.type == "type_identifier":
+                    var_type = get_text(child)
+                elif child.type == "expression_list":
+                    
+                    # The value is hidden inside the last named child (which is the expression_list)
+                    lit_node = node.named_child(node.named_child_count - 1)
+                    if lit_node and lit_node.type == "expression_list":
+                        lit_node = lit_node.named_child(0)
+                    if lit_node:
+                        var_value = get_text(lit_node)
+
+        # --- GENERAL STRATEGY FOR SIMPLER LANGUAGES --- #
+
+        # Strategy A: Simple Assignment Structures (Python, Ruby, PHP, Lua)
+        # These languages use a basic `left = right` AST structure.
+        elif node.type in ["assignment", "assignment_statement", "assignment_expression"]:
+            left = node.child_by_field_name("left") or node.child_by_field_name("variable")
+            if not left and node.named_child_count > 0:
+                left = node.named_child(0)
+                
+            right = node.child_by_field_name("right") or node.child_by_field_name("value")
+            if not right and node.named_child_count > 1:
+                right = node.named_child(1)
+            
+            # Handle Python's `x: int = 5` syntax where name and type are grouped in a `typed_parameter`
+            if left and left.type == "typed_parameter": 
+                var_name = get_text(left.child_by_field_name("name"))
+                var_type = get_text(left.child_by_field_name("type"))
+            else:
+                var_name = get_text(left)
+
+                # If no explicit type, infer it from the right side of the equals sign
+                var_type = infer_literal_type(right)
+            var_value = get_text(right)
+
+        # Strategy B: Keyword / Block Declarations (JS, TS)
+        # JS/TS nest the actual variable details inside a `declarator` child node.
+        elif node.type in ["variable_declaration", "lexical_declaration", "let_declaration", 
+                           "constant_declaration", "top_level_variable_declaration"]:
+            
+            decl = node
+
+            # Unwrap the declarator if we are at the top-level declaration node
+            if node.type in ["variable_declaration", "lexical_declaration"]:
+                decl = node.child_by_field_name("declarator") or node.named_child(0)
+
+            # Find the name (sometimes in 'pattern' for array destructuring, usually in 'name')
+            name_node = decl.child_by_field_name("name") or decl.child_by_field_name("pattern") or decl.named_child(0)
+            
+            # Find the value (usually the last child in the declarator)
+            value_node = decl.child_by_field_name("value") or decl.child_by_field_name("initializer")
+            
+            if not value_node and decl.child_count > 1:
+                value_node = decl.named_child(decl.child_count - 1)
+
+            var_name = get_text(name_node)
+            var_value = get_text(value_node)
+
+            # Attempt to extract an explicit type (e.g, TypeScript `let x: number = 5`)
+            type_node = decl.child_by_field_name("type")
+            if type_node:
+
+                # Clean up the colon if it gets caught in the text slice
+                var_type = get_text(type_node).replace(":", "").strip()
+            elif name_node and name_node.child_by_field_name("type"):
+                var_type = get_text(name_node.child_by_field_name("type")).replace(":", "").strip()
+            else:
+
+                # Fallback to inference for standard JavaScript
+                var_type = infer_literal_type(value_node)
+
+        # Strategy C: Fronted Type Names (C, C++, Java)
+        # These languages put the type FIRST (e.g., `int x = 5;`). The AST reflects this by making 
+        # the type a sibling to the `declarator`, rather than a child of the variable name.
+        elif node.type in ["declaration", "field_declaration"]:
+            type_node = node.child_by_field_name("type")
+            declarator = node.child_by_field_name("declarator") or node.child_by_field_name("declarator_list") or node.named_child(1)
+
+            if type_node:
+                var_type = get_text(type_node)
+            
+            if declarator:
+
+                # The declarator might be a simple name, or an `init_declarator` containing both name and value
+                if declarator.type in ["init_declarator", "variable_declarator"]:
+                    name_node = declarator.child_by_field_name("declarator") or declarator.child_by_field_name("name") or declarator.named_child(0)
+                    value_node = declarator.child_by_field_name("value") or declarator.child_by_field_name("initializer")
+                    var_name = get_text(name_node)
+                    var_value = get_text(value_node)
+                else:
+
+                    # Plain declarator (just a name, no value assigned)
+                    var_name = get_text(declarator)
+
+        # --- 3. SANITIZATION, UNIFICATION AND VALIDATION ---
+        # Strip out array brackets (e.g., turn `int arr[10]` into `int arr`) and trailing semicolons
+        clean_name = var_name.split("[")[0].strip().replace(";", "")
+        
+
+        # Verify the extracted string is a valid identifier.
+        # We also allow names starting with '$' (common in PHP and JS/TS).
+        is_valid = clean_name.isidentifier() or (
+            clean_name.startswith("$") and clean_name[1:].isidentifier()
+        )
+        
+
+        # If it passes validation, add it to our final dictionary mapping global var name -> [type, value]
+        if is_valid:
+            global_vars[clean_name] = [str(var_type), str(var_value).rstrip(";")]
+
+    # Return the final dictionary as a JSON string
+    return json.dumps(global_vars)
 
 
 
@@ -798,8 +1160,8 @@ def find_class_docstring(file_path):
                     if docstring or class_name not in docstrings_map:
                         docstrings_map[class_name] = docstring
     
-    # Return the final dictionary formatted as a pretty-printed JSON string
-    return json.dumps(docstrings_map, indent=4)
+    # Return the final dictionary as a JSON string
+    return json.dumps(docstrings_map)
 
 
 
@@ -893,7 +1255,6 @@ def attach_auth(headers, auth_style, token):
     elif auth_style == "private_token":
         headers["PRIVATE-TOKEN"] = token
     return headers
-
 
 
 
@@ -1046,12 +1407,12 @@ def search_language_registry(keywords_str: str, language: str, limit: str = "5")
     Search the official package registry of each language and get the package name and repo name associated with the package in github.
     Use it when user wanted to find a library/package in a specific language. Show the package/library name and its github repo name as seperated and in a nice format.
     
-    Args:- 
+    Parameters:- 
         keywords_str : string of list of keywords (eg. "['hello','py'])
         language: name of the programming language (always be in lower cases)
         limit: number of package names needed (default to 5)
 
-    Output:-
+    Returns:-
          a JSON string of the package names and its github repo name (owner/repo format) in key value format (eg. {'rich':'Textualize/rich', ...})    
     
     IMP:- 
@@ -1923,6 +2284,182 @@ def search_language_registry(keywords_str: str, language: str, limit: str = "5")
 
 
 
+
+# ─────────────────────────────────────────────
+# SEARCH KAGGLE NOTEBOOKS
+# ─────────────────────────────────────────────
+
+@tool
+def search_kaggle_notebooks(query_keywords: str, max_results: str = '10') -> str:
+    """
+    Search Kaggle python notebook kernal names (or notebook_ref names) using a string of list of keywords. Use it when the user asks for kaggle notebook names. Create
+    the string of list of keywords if the user does not give it.
+
+    Parameters:-
+              query_keywords: string of list of keywords (eg:- "['ai','learning']") 
+              maximum_result: string of maximum number of notebook names to be returned (default to '10') (eg:- '15')
+
+    Returns:- 
+           JSON string of kaggle notebook kernal names (owner/slug format) (eg:- {'owner1/notebook1','owner2/notebook2',...})          
+    """
+    try:
+
+        # Convert the max_result to integer
+        max_results = int(max_results)      
+        
+        # 1. Parse search query using ast.literal_eval
+        try:
+            parsed = ast.literal_eval(query_keywords)
+            keywords = [str(k).strip() for k in parsed if k] if isinstance(parsed, list) else [str(parsed).strip()]
+        except (ValueError, SyntaxError):
+            keywords = [query_keywords.strip()]
+
+        # Filter out any empty strings that might have been caused by extra commas or spaces
+        keywords = [k for k in keywords if k]
+        if not keywords:
+            return "No valid search keywords provided."
+
+        # Join the list into a single space-separated string for the Kaggle search API
+        search_query = " ".join(keywords)
+
+        # 2. Reload .env & environment setup
+        load_dotenv(dotenv_path=ENV_FILE, override=True)
+
+        # Import and initialize the Kaggle API client
+        import kaggle
+        api = kaggle.api
+        api.authenticate()  # Crucial: Forces Kaggle client to register environment credentials
+
+        # 3. Search for matching notebooks/kernels
+        # Passing sort_by="voteCount" ensures we get top active notebooks rather than empty/dead ones
+        kernels = api.kernels_list(search=search_query, sort_by="voteCount")
+        if not kernels:
+            return "No results were found for the keywords"
+
+        # 4. Extract notebook_ref names (owner/slug format)
+        notebook_refs = []
+        for kernel in kernels:
+
+            # Stop processing once we hit the user's requested limit
+            if len(notebook_refs) >= max_results:
+                break
+
+            # Robust language detection: Kaggle's API object structure changes depending on the version.
+            # It might be under 'language' or 'languageName', so we use getattr to check both safely.
+            lang = getattr(kernel, 'language', None) or getattr(kernel, 'languageName', None)
+            
+            # FILTERING LOGIC: We want to isolate Python notebooks.
+            # Instead of checking if it IS python, we check if it's NOT R, Julia, or SQL.
+            # This whitelist approach keeps the notebook if the language tag is missing/None, 
+            # empty, or explicitly Python/Py.
+            if lang is None or str(lang).lower() in ['python', 'py', '']:
+                ref = getattr(kernel, 'ref', str(kernel))
+                if ref:
+                    notebook_refs.append(ref)
+
+        if not notebook_refs:
+            return "No Python notebooks found for the keywords."
+
+        # Return the final list as a JSON string
+        return json.dumps(notebook_refs)
+
+    except Exception as e:
+
+        # Catch-all for API errors, network failures, or authentication issues to prevent TUI crashes
+        return f"Error searching Kaggle notebooks: {str(e)}"
+
+
+# ─────────────────────────────────────────────
+# FETCH KAGGLE NOTEBOOK 
+# ─────────────────────────────────────────────
+
+@tool
+def fetch_kaggle_notebook(notebook_ref: str) -> str:
+    """
+    Extract and fetches the python code in a kaggle notebook kernal using its notebook_ref name, as a string.
+    
+    Parameters:-
+              notebook_ref : the notebook ref name (owner/slug format) (eg:- 'owner1/notebook1')
+    
+    Returns:- 
+           string of python code extracted from the notebook  
+    """
+    try:
+
+        # Ensure the notebook_ref is properly formatted as "owner/notebook-slug" format
+        if "/" not in notebook_ref:
+            return "Error: notebook_ref must be in 'owner/notebook-slug' format."
+
+        # 1. Credentials setup
+        # Reload dynamically in case the user updated the token in the TUI settings during a session
+        load_dotenv(dotenv_path=ENV_FILE, override=True)
+        username = os.environ.get("KAGGLE_USERNAME")
+        key = os.environ.get("KAGGLE_API_TOKEN")
+
+        if not username or not key:
+            return "Error: Kaggle credentials (KAGGLE_USERNAME / KAGGLE_API_TOKEN) missing in environment variables"
+
+        # Split 'owner/slug' into two distinct URL parameters
+        owner, slug = notebook_ref.split("/", 1)
+
+        # 2. Correct Endpoint with userName and kernelSlug parameters
+        url = "https://www.kaggle.com/api/v1/kernels/pull"
+        params = {
+            "userName": owner,
+            "kernelSlug": slug
+        }
+
+        # Make the request using HTTP Basic Authentication with the Kaggle credentials
+        response = requests.get(url, params=params, auth=(username, key), timeout=15)
+        response.raise_for_status()
+
+        # 3. Parse JSON directly from API response
+        data = response.json()
+        
+        # Kaggle wraps the actual notebook data inside a 'blob' object, under a 'source' key
+        blob = data.get("blob", {})
+        blob_str = blob.get("source", "") if isinstance(blob, dict) else ""
+        
+        if not blob_str:
+            return f"Error: Notebook '{notebook_ref}' contains no code or source content."
+
+        # The 'source' is actually a JSON string representing a Jupyter notebook, so we must parse it twice
+        notebook_json = json.loads(blob_str) if isinstance(blob_str, str) else blob_str
+
+        # 4. Extract executable code cells
+        code_blocks = []
+
+        # Iterate through the Jupyter notebook structure
+        for cell in notebook_json.get('cells', []):
+
+            # Extract 'code' cells
+            if cell.get('cell_type') == 'code':
+
+                # Jupyter stores source code as an array of strings (one per line)
+                source = cell.get('source', [])
+
+                # Rejoin the array into a single clean string block
+                cell_text = "".join(source) if isinstance(source, list) else source
+                if cell_text.strip():
+                    code_blocks.append(cell_text.strip())
+
+        if not code_blocks:
+            return f"Error: Notebook '{notebook_ref}' has no Python code cells."
+
+        # Join all extracted code blocks with a highly visible separator so the LLM 
+        # can distinguish where one notebook cell ends and the next begins
+        return "\n\n# " + "=" * 40 + "\n\n".join(code_blocks)
+
+    except requests.exceptions.HTTPError as e:
+
+        # Catch specific HTTP errors (like 401 Unauth or 404 Not Found) and return the status code cleanly
+        return f"Kaggle HTTP Error {e.response.status_code}: {e.response.text}"
+    except Exception as e:
+
+        # Catch errors like JSON parsing errors or network failures to prevent the TUI from crashing
+        return f"Error fetching Kaggle code in-memory: {str(e)}"
+
+
 # ─────────────────────────────────────────────
 # FIND REPO STRUCTURE 
 # ─────────────────────────────────────────────
@@ -1973,7 +2510,7 @@ def find_repo_structure(repo_full_name: str, platform: str = "github") -> str:
 
         platform       : "github" or "gitlab"
 
-    Output: a json string
+    Returns: a json string
 
         (e.g. {"root": ["README.md","logo.png"], "src": ["main.py","test.py"], "src/utils": ["helper.py"]} )
     """
@@ -2086,8 +2623,8 @@ def find_repo_structure(repo_full_name: str, platform: str = "github") -> str:
         if not structure:
             return "No files found in the repository."
         
-        # Return the grouped dictionary as a formatted JSON string
-        return json.dumps(structure, indent=4)
+        # Return the grouped dictionary as a JSON string
+        return json.dumps(structure)
 
     except requests.exceptions.ConnectionError as e:
         raise RuntimeError(f"Network Error: Could not reach {platform}. Check your network") from e
@@ -2108,7 +2645,6 @@ def find_repo_structure(repo_full_name: str, platform: str = "github") -> str:
         raise RuntimeError(f"Unexpected error: {str(e)}") from e
 
 
-  
 # ─────────────────────────────────────────────
 # FETCH FILE 
 # ─────────────────────────────────────────────
@@ -2261,6 +2797,7 @@ def with_temp_file(
     repo_full_name: str,
     platform:       str,
     func:           str,
+    notebook_ref: str = "",
     extra_arg:      str = "",
 ) -> str:
     """
@@ -2269,16 +2806,18 @@ def with_temp_file(
     
 Parameters:
 
-    file_path      : full path to file in repo (e.g. "src/main.py")
-    repo_full_name : full name of the repo "owner/repo" format (e.g. "shelsoloa/Peachy")
-    platform       : "github" or "gitlab"
-    func           : name of the AST extraction functions (see options below)
+    file_path      : full path to file in repo (e.g. "src/main.py"). (Should be "" if the platform is kaggle)
+    repo_full_name : full name of the repo "owner/repo" format (e.g. "shelsoloa/Peachy"). (Should be "" if platform is kaggle)
+    platform       : "github" or "gitlab" or "kaggle"
+    func           : name of the AST extractor function (see options below)
+    notebook_ref   : reference name of the kaggle notebook (find it using search_kaggle_notebooks if not known), Only needed if platform = kaggle. If platform is github or gitlab then this value should be ""
     extra_arg      : extrac arguments that are required by some funcs (see below)
 
 func options:
     "find_function_names"       -> get all function names as a list. extra_arg: not needed
     "find_function_definitions" -> get source code definition of a function using the function name (find it using find_function_names if not given). (Can be used to find parameters, their type and return type of a function by analysing it.) extra_arg: function_name
     "find_function_docstring"   -> get the docstring of each function and return as a json string (where key is the function name and the value is the docstring (e.g. {"func1":"doc1","func2:"doc2"})). (Can be used to understand more about a function by analysing its docstring.) extra_arg: not needed
+    "find_global_variables"     -> get all the names of globally defined variables along with their value and type as a dict. (Where key is variable name and value is a list containing the type and value (e.g, {"global_var1":["type1","value1"], "global_var2":[...], ...} ). extra_arg: not needed 
     "find_class_names"          -> get all class names in a file as a list.    extra_arg: not needed
     "find_class_definitions"    -> get source code definitions of a class using class name (find it using find_class_names if not given). (can be used to answer any query from user related to a particular class by analysing it.) extra_arg: class_name
     "find_class_docstring"      -> get the docstring of each class and return as a json string (where key is the class name and the value is the docstring (e.g. {"class1":"doc1","class2:"doc2"})). (Can be used to understand more about a class by analysing its docstring.) extra_arg: not needed
@@ -2290,6 +2829,7 @@ func options:
         "find_function_names":       find_function_names,
         "find_function_definitions": find_function_definitions,
         "find_function_docstring":   find_function_docstring,
+        "find_global_variables":     find_global_variables,
         "find_class_names":          find_class_names,
         "find_class_definitions":    find_class_definitions,
         "find_class_docstring":      find_class_docstring
@@ -2302,42 +2842,72 @@ func options:
     # Get the actual callable function object
     actual_func = func_map[func]
 
-    # Extract the original filename (e.g., "helper.py") and its extension (e.g., ".py")
-    bare_name   = os.path.basename(file_path)
-    ext         = os.path.splitext(bare_name)[1]
+    platform = platform.lower()
 
-    # Create a prefix for the temp file (e.g., "helper_"). 
-    # This ensures the temp file looks like "helper_12345.py", which helps Pygments/Tree-sitter 
-    # correctly identify the language based on the extension.
-    prefix      = os.path.splitext(bare_name)[0] + "_"
+    if platform != "kaggle":
 
-    # Fetch the file content from the repository.
-    # Note: We use `.func` here because `fetch_file` is wrapped as a LangChain @tool. 
-    # Accessing `.func` bypasses the tool schema validation and calls the raw Python function directly.
-    file_content = fetch_file.func(
-        file_path,
-        repo_full_name,
-        platform,
-    )
+        display_path = file_path
+        # Extract the original filename (e.g., "helper.py") and its extension (e.g., ".py")
+        bare_name   = os.path.basename(file_path) 
+        ext         = os.path.splitext(bare_name)[1]
+
+        # Create a prefix for the temp file (e.g., "helper_"). 
+        # This ensures the temp file looks like "helper_12345.py", which helps Pygments/Tree-sitter 
+        # correctly identify the language based on the extension.
+        prefix      = os.path.splitext(bare_name)[0] + "_"
+
+        # Fetch the file content from the repository.
+        # Note: We use `.func` here because `fetch_file` and `fetch_kaggle_notebook` is wrapped as a LangChain @tool. 
+        # Accessing `.func` bypasses the tool schema validation and calls the raw Python function directly.
     
-    # Verify that the file actually contained data
-    if not file_content:
-        return f"Error: could not fetch '{file_path}' from '{repo_full_name}' on {platform}."
-
+        file_content = fetch_file.func(
+            file_path,
+            repo_full_name,
+            platform,
+        )
+    
+        # Verify that the file_content actually contained data
+        if not file_content:
+            return f"Error: could not fetch '{file_path}' from '{repo_full_name}' on {platform}."
+        
+    else:
+        
+        # Extract the original filename (e.g., "helper.py") and its extension (e.g., ".py")
+        display_path = notebook_ref
+        bare_name   = "notebook.py"
+        ext         = os.path.splitext(bare_name)[1]
+        
+        # Create a prefix for the temp file (e.g., "helper_"). 
+        # This ensures the temp file looks like "helper_12345.py", which helps Pygments/Tree-sitter 
+        # correctly identify the language based on the extension.
+        prefix      = os.path.splitext(bare_name)[0] + "_"
+        
+        # Fetch the file content from the repository.
+        # Note: We use `.func` here because `fetch_file` and `fetch_kaggle_notebook` is wrapped as a LangChain @tool. 
+        # Accessing `.func` bypasses the tool schema validation and calls the raw Python function directly.
+            
+        file_content = fetch_kaggle_notebook.func(
+            notebook_ref
+            )
+            
+        # Verify that the file_content actually contained data
+        if not file_content:
+            return f"Error: could not fetch the notebook {notebook_ref} from Kaggle"
+        
     # Create a physical temporary file on disk.
     # delete=False is CRITICAL: Tree-sitter requires a real file path to parse. 
-    # We handle manual deletion in the `finally` block.
+    # We handle manual deletion in the `finally` block.    
     with tempfile.NamedTemporaryFile(
-        mode='w', suffix=ext, prefix=prefix,
-        delete=False, encoding='utf-8'
-    ) as tmp:
-        tmp.write(file_content)
-        tmp_path = tmp.name # Save the path so we can pass it to the AST functions
-
+                mode='w', suffix=ext, prefix=prefix,
+                delete=False, encoding='utf-8'
+            ) as tmp:
+                tmp.write(file_content)
+                tmp_path = tmp.name # Save the path so we can pass it to the AST functions
+    
     try:
 
         # Funtions that dont requires extra args other than filepath
-        no_arg_funcs = {"find_function_names","find_function_docstring", "find_class_names", "find_class_docstring"}
+        no_arg_funcs = {"find_function_names","find_function_docstring", "find_global_variables", "find_class_names", "find_class_docstring"}
 
         if func in no_arg_funcs:
 
@@ -2353,21 +2923,21 @@ func options:
         # AST functions return different types (lists, dicts, strings, or None).
         # We must standardize the output so the LLM doesn't break trying to parse inconsistent types.
         if result is None:
-            return f"No results found for '{func}' on '{file_path}'."
+            return f"No results found for '{func}' on '{display_path}'."
 
         # If the function returned a list or dict, convert it to a JSON string for safe LLM consumption
         result_str = json.dumps(result) if isinstance(result, (list, dict)) else str(result)
 
         # Catch edge cases where the result is technically valid JSON but completely empty
         if not result_str or result_str.strip() in ("", "[]", "{}", "None"):
-            return f"'{func}' returned no results for '{file_path}'. The file may not contain the requested function or class."
+            return f"'{func}' returned no results for '{display_path}'. The file may not contain the requested content."
 
         return result_str
 
     except Exception as e:
 
         # Catch any Tree-sitter parsing crashes or file reading errors and return them as safe strings
-        return f"Error while running '{func}' on '{file_path}': {str(e)}"
+        return f"Error while running '{func}' on '{display_path}': {str(e)}"
 
     finally:
 
@@ -2409,6 +2979,8 @@ search_repos,
 with_temp_file,
 find_repo_structure,
 fetch_file,
+fetch_kaggle_notebook,
+search_kaggle_notebooks,
 save_string_to_file,   
 search_language_registry,
 
