@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Changelog & Updates | Mylo</title>
+    <style>
+        /* --- Ocean & Octopus Color Palette --- */
+        :root {
+            --ocean-top: #086a85;       
+            --ocean-mid: #08516b;       
+            --ocean-bottom: #02395e;    
+            
+            --midnight-blue: #002533;
+            --sea-foam: #00f5ff;
+            --bioluminescent: #00b4d8;
+            --coral-reef: #ff7f50;
+            --shell-white: #f4f6f9;
+            --kelp-muted: #a3d5f7;
+            --abyss-glow: rgba(0, 245, 255, 0.2);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Courier Prime', monospace;
+            background-color: var(--ocean-top);
+            background-image: linear-gradient(180deg, var(--ocean-top) 0%, var(--ocean-mid) 45%, var(--ocean-bottom) 100%);
+            color: var(--shell-white);
+            line-height: 1.6;
+        }
+
+        /* --- Header Section Layout --- */
+        header {
+            background: linear-gradient(180deg, rgba(28, 37, 65, 0.9) 0%, rgba(11, 19, 43, 0.5) 60%, transparent 100%);
+            text-align: center;
+            padding: 3rem 1.5rem 2.5rem 1.5rem;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        header::before {
+            content: '';
+            position: absolute;
+            top: 30%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            background: var(--bioluminescent);
+            filter: blur(80px);
+            opacity: 0.15;
+            pointer-events: none;
+        }
+
+        /* Fixed Top-Left Navigation Link */
+        .nav-back {
+            position: absolute;
+            left: 3.9rem;
+            top: 2.5rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--sea-foam);
+            text-decoration: none;
+            font-weight: 700;
+            transition: color 0.2s ease, transform 0.2s ease;
+            z-index: 10;
+        }
+
+        .nav-back:hover {
+            color: #ffffff;
+            transform: translateX(-4px);
+            text-shadow: 0 0 10px var(--sea-foam);
+        }
+
+        .octopus-emoji {
+            margin-bottom: 0.8rem;
+            animation: float 4s ease-in-out infinite;
+            display: inline-block;
+            filter: drop-shadow(0 0 15px rgba(0, 180, 216, 0.4));
+        }
+
+        .logo-image {
+            display: block;
+            margin: 0 auto;
+        }
+
+        h1 {
+            font-size: 3rem;
+            color: var(--sea-foam);
+            line-height: 1.1;
+            margin-bottom: 0.5rem;   
+            letter-spacing: -0.5px;
+            text-shadow: 0 0 20px rgba(72, 202, 228, 0.4);
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+
+        .tagline {
+            font-size: 1.15rem;
+            color: var(--kelp-muted);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* --- Content Layout --- */
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 0 1.5rem 6rem 1.5rem;
+        }
+
+        h2 {
+            font-size: 1.9rem;
+            color: var(--shell-white);
+            border-bottom: 2px solid rgba(28, 37, 65, 0.6);
+            padding-bottom: 0.6rem;
+            margin-top: 2rem;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        h2::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 100%; 
+            height: 2px;
+            background: var(--sea-foam);
+            box-shadow: 0 0 8px var(--sea-foam), 0 0 3px var(--bioluminescent);
+            transform-origin: left; 
+            animation: shore-wave 16s ease-in-out infinite;
+        }
+
+        @keyframes shore-wave {
+            0% { transform: scaleX(0.08); opacity: 0.3; }
+            45% { transform: scaleX(1); opacity: 0.85; box-shadow: 0 0 15px var(--sea-foam); }
+            50% { transform: scaleX(1); opacity: 0.85; box-shadow: 0 0 15px var(--sea-foam); }
+            95% { transform: scaleX(0.08); opacity: 0.15; box-shadow: 0 0 4px var(--bioluminescent); }
+            100% { transform: scaleX(0.08); opacity: 0.3; }
+        }
+
+        /* --- Update Cards Layout --- */
+        .updates-stack {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .update-card {
+            background-color: var(--midnight-blue);
+            padding: 2rem;
+            border-radius: 12px;
+            border: 1px solid rgba(28, 37, 65, 0.8);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.25);
+            transition: transform 0.3s cubic-bezier(0.165, 0.84, 0.44, 1), 
+                        box-shadow 0.3s ease, 
+                        border-color 0.3s ease;
+            position: relative;
+        }
+
+        .update-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--sea-foam);
+            box-shadow: 0 20px 35px rgba(0, 0, 0, 0.4), 0 0 20px var(--abyss-glow);
+        }
+
+        .update-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 1rem;
+            border-bottom: 1px solid rgba(72, 202, 228, 0.15);
+            padding-bottom: 1rem;
+            margin-bottom: 1.2rem;
+        }
+
+        .update-title-group h3 {
+            color: var(--sea-foam);
+            font-size: 1.4rem;
+            text-shadow: 0 0 10px rgba(72, 202, 228, 0.2);
+            margin-bottom: 0.3rem;
+        }
+
+        .version-badge {
+            display: inline-block;
+            background-color: #040812;
+            color: var(--coral-reef);
+            border: 1px solid rgba(255, 127, 80, 0.3);
+            padding: 0.2rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: bold;
+            font-family: monospace;
+        }
+
+        .update-date {
+            color: var(--kelp-muted);
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+
+        .update-list {
+            list-style: none;
+            color: var(--kelp-muted);
+            font-size: 0.95rem;
+        }
+
+        .update-list li {
+            position: relative;
+            padding-left: 1.5rem;
+            margin-bottom: 0.75rem;
+            line-height: 1.6;
+        }
+
+        .update-list li:last-child {
+            margin-bottom: 0;
+        }
+
+        .update-list li::before {
+            content: "➢";
+            position: absolute;
+            left: 0;
+            color: var(--sea-foam);
+        }
+
+        code {
+            background-color: #040812;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: var(--sea-foam);
+            font-family: monospace;
+            border: 1px solid rgba(72, 202, 228, 0.15);
+            font-size: 0.85rem;
+        }
+
+        /* --- Footer Styles --- */
+        footer {
+            background: linear-gradient(180deg, #051636 0%, #020c24 50%, #010512 100%);
+            border-top: 1px solid rgba(72, 202, 228, 0.15);
+            box-shadow: 0 -10px 30px rgba(0, 180, 216, 0.05);
+            padding: 3rem 2rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .footer-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            min-height: 80px;
+        }
+
+        .footer-left {
+            position: absolute;
+            left: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+            align-items: flex-start;
+        }
+
+        .footer-right {
+            display: flex;
+            text-align: center;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .footer-right p {
+            margin: 0;
+            text-align: center;
+        }
+
+        .license-row {
+            margin-top: 0.6rem;       
+            font-size: 0.85rem;       
+            opacity: 0.65;          
+            font-weight: 500;
+        }
+
+        footer, footer p, footer a {
+            color: #ffffff;
+            font-weight: 700;
+            text-shadow: 0 0 8px rgba(72, 202, 228, 0.4);
+            text-decoration: none;
+        }
+
+        .footer-link {
+            transition: color 0.2s ease, text-shadow 0.2s ease;
+        }
+
+        .footer-link:hover {
+            color: #48cae4;
+            text-shadow: 0 0 12px #48cae4;
+        }
+
+        .footer-logo {
+            height: 2.3rem;         
+            width: auto;            
+            vertical-align: middle; 
+            margin-right: 0.4rem;   
+        }
+
+        /* --- Animations & Background Layers --- */
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-12px) rotate(3deg); }
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { text-shadow: 0 0 15px rgba(72, 202, 228, 0.3); }
+            50% { text-shadow: 0 0 25px rgba(0, 180, 216, 0.65); color: #fff; }
+        }
+
+        .bubble-wrapper {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 9999;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .individual-bubble {
+            position: absolute;
+            bottom: -50px;
+            background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4) 0%, rgba(72, 202, 228, 0.05) 70%);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 50%;
+            box-shadow: 0 0 8px rgba(0, 180, 216, 0.15);
+            animation: float-up infinite linear;
+        }
+
+        .individual-bubble:nth-child(1) { left: 10%; width: 35px; height: 35px; animation-duration: 12s; animation-delay: 0s; }
+        .individual-bubble:nth-child(2) { left: 25%; width: 18px; height: 18px; animation-duration: 18s; animation-delay: 2s; }
+        .individual-bubble:nth-child(3) { left: 40%; width: 45px; height: 45px; animation-duration: 14s; animation-delay: 5s; }
+        .individual-bubble:nth-child(4) { left: 55%; width: 12px; height: 12px; animation-duration: 22s; animation-delay: 1s; }
+        .individual-bubble:nth-child(5) { left: 70%; width: 30px; height: 30px; animation-duration: 16s; animation-delay: 7s; }
+        .individual-bubble:nth-child(6) { left: 85%; width: 22px; height: 22px; animation-duration: 20s; animation-delay: 3s; }
+        .individual-bubble:nth-child(7) { left: 92%; width: 40px; height: 40px; animation-duration: 13s; animation-delay: 9s; }
+
+        @keyframes float-up {
+            0% { transform: translateY(0) scale(0.8) translateX(0); opacity: 0; }
+            10%, 90% { opacity: 0.35; }
+            100% { transform: translateY(-115vh) scale(1.2) translateX(30px); opacity: 0; }
+        }
+
+        .fish-wrapper {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .individual-fish {
+            position: absolute;
+            opacity: 0;
+            animation: swim-left infinite linear;
+            filter: drop-shadow(0 0 8px rgba(72, 202, 228, 0.35)); 
+        }
+
+        .individual-fish:nth-child(1)  { top: 4%;  font-size: 1.5rem; animation-duration: 35s; animation-delay: -5s; }
+        .individual-fish:nth-child(2)  { top: 15%; font-size: 1.1rem; animation-duration: 48s; animation-delay: -25s; }
+        .individual-fish:nth-child(3)  { top: 26%; font-size: 2.0rem; animation-duration: 30s; animation-delay: -12s; }
+        .individual-fish:nth-child(4)  { top: 42%; font-size: 1.7rem; animation-duration: 42s; animation-delay: -8s; }
+        .individual-fish:nth-child(5)  { top: 57%; font-size: 2.4rem; animation-duration: 32s; animation-delay: -3s; }
+        .individual-fish:nth-child(6)  { top: 72%; font-size: 1.8rem; animation-duration: 41s; animation-delay: -11s; }
+        .individual-fish:nth-child(7)  { top: 86%; font-size: 0.9rem; animation-duration: 62s; animation-delay: -55s; }
+
+        @keyframes swim-left {
+            0% { transform: translateX(105vw) translateY(0); opacity: 0; }
+            8%, 92% { opacity: 0.22; }
+            100% { transform: translateX(-15vw) translateY(-50px); opacity: 0; }
+        }
+
+        .individual-fish.swim-right { animation-name: swim-right; }
+
+        @keyframes swim-right {
+            0% { transform: translateX(-15vw) translateY(0) scaleX(-1); opacity: 0; }
+            8%, 92% { opacity: 0.22; }
+            100% { transform: translateX(105vw) translateY(-50px) scaleX(-1); opacity: 0; }
+        }
+
+        header, .container, footer {
+            position: relative;
+            z-index: 2;
+        }
+
+        /* Mobile responsiveness adjustments */
+        @media (max-width: 768px) {
+            header {
+                padding-top: 5rem;
+            }
+            .nav-back {
+                top: 1.5rem;
+                left: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Floating Bubbles -->
+    <div class="bubble-wrapper">
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+        <div class="individual-bubble"></div>
+    </div>
+
+    <!-- Swimming Background Fish -->
+    <div class="fish-wrapper">
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish swim-right">🐠</div>
+        <div class="individual-fish">🐡</div>
+        <div class="individual-fish swim-right">🐠</div>
+        <div class="individual-fish">🐟</div>
+        <div class="individual-fish swim-right">🐡</div>
+        <div class="individual-fish">🐟</div>
+    </div>
+
+    <header>
+        <a href="index.html" class="nav-back">← Back to Main Page</a>
+        <div class="octopus-emoji">
+            <img src="logo.png" alt="Mylo Logo" class="logo-image" width="85">
+        </div>
+        <h1>Agent Releases</h1>
+        <p class="tagline">Explore the latest features, enhancements and improvements to Mylo.</p>
+    </header>
+
+    <div class="container">
+        <h2>Major Updates</h2>
+
+        <div class="updates-stack">
+
+            <!-- Card 1: v1.0.6 -->
+            <div class="update-card">
+                <div class="update-header">
+                    <div class="update-title-group">
+                        <h3>Added new OpenSource code hoster: Kaggle</h3>
+                        <span class="version-badge">v1.0.6</span>
+                    </div>
+                    <span class="update-date">Released: July 2026</span>
+                </div>
+
+                <ul class="update-list">
+                    <li>Added Kaggle notebook search capabilities to the agent</li>
+                    <li>Added Kaggle notebook code fetching and analysing capabilities to the agent</li>
+                    <li>Improved the agent's efficiency by adding more AST extractor tools.</li>
+                </ul>
+            </div>
+
+            <!-- Card 2: v1.0.5 -->
+            <div class="update-card">
+                <div class="update-header">
+                    <div class="update-title-group">
+                        <h3>Additional Model Provider support</h3>
+                        <h3>and language specific package analysis</h3>
+                        <span class="version-badge">v1.0.5</span>
+                    </div>
+                    <span class="update-date">Released: July 2026</span>
+                </div>
+
+                <ul class="update-list">
+                    <li>Included two model providers: Huggingface and Ollama</li>
+                    <li>Added Official language specific package registry search and repository analysis to the agent</li>
+                    <li>Added inline stateless command execution capabilities to the TUI</li>
+                </ul>
+            </div>
+
+            <!-- Card 3: v1.0.0 -->
+            <div class="update-card">
+                <div class="update-header">
+                    <div class="update-title-group">
+                        <h3>Initial Release</h3>
+                        <span class="version-badge">v1.0.0</span>
+                    </div>
+                    <span class="update-date">Released: July 2026</span>
+                </div>
+
+                <ul class="update-list">
+                    <li>Official open-source release of <code>mylo-agent</code> TUI package on PyPI.</li>
+                    <li>Terminal User Interface (TUI) powered by Textual and custom system prompt capabilities.</li>
+                    <li>Supports search and analysis of opensource repositories in GitHub and GitLab</li>
+                    <li>Added basic AST extractor tools to the agent for efficient analysis and fetching code</li>
+                </ul>
+            </div>
+
+        </div>
+    </div>
+
+    <footer>
+        <div class="footer-container">
+            <div class="footer-left">
+                <a href="index.html" class="footer-link">Home</a>
+                <a href="https://github.com/MonteLuke/mylo-project" target="_blank" class="footer-link">GitHub</a>
+                <a href="docs.html" class="footer-link">Docs</a>
+            </div>
+            
+            <div class="footer-right">
+                <p class="tagline-row">
+                    <img src="logo.png" alt="Mylo Logo" class="footer-logo"> 
+                    Every Code Matter Now ~ Mylo
+                </p>
+                <br>
+                <p class="license-row">Released under the MIT License</p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>
