@@ -160,8 +160,9 @@ mylo
 
 * Allow you to execute inline local stateless commands in \cmd {command} format, without closing the tui.
 
-* Allows you to add github and gitlab tokens for more api requests by the agent. (The tokens are stored in ~/mylo-config/.env)
+* Allows you to add github, gitlab tokens (The tokens are stored in ~/mylo-config/.env) to enable more api requests by the agent.
 
+* Allows you to add kaggle api token and kaggle username (It is necessary if you wanted the agent to use kaggle api to find notebooks and fetch code from notebooks). (The api token and username are stored in ~/mylo-config/.env).
 
 
 ### Model Profile 
@@ -176,17 +177,21 @@ memory limit is the the maximum number of tokens passed to the LLM as conversati
 
 - Mylo can find names of repos from github and gitlab based on your specific needs
 
+- Mylo can find names of kaggle python notebooks based on your specific needs
+
+- Mylo can fetch code from a specific kaggle python notebook 
+
 - Mylo can find names of language specific libraries from their official registry and their corresponding repo names based on your needs. (Currently it will not support lua since LuaRock doesnt expose user friendly search api. And for c and cpp, agent uses github search api, because these languages dont have a centralised registry and search api) 
 
 - It can show the file structure of a repository (This also work for repositories of libraries)
 
 - It can fetch / retrieve any files from a repository such as readme.md (you can ask it to retrive a file by specifying the path of the file in the repo (folder/file format). if it is not inside any folder, then just specify only the filename ).
 
-- Mylo can also analyse the fetched files
+- Mylo can also analyse the fetched files and kaggle notebook code
 
-- Mylo can analyse a file more deeply by using the AST of the file (The agent currently supports 16 languages.)
+- Mylo can analyse files and kaggle notebook code more deeply by using the AST extractor functions (The agent currently supports 16 languages).
 
-- Mylo can also write the retrieved files into disk (should provide the path to which the file is to be saved).
+- Mylo can also write the retrieved files and kaggle notebook code into disk (should provide the path to which the file is to be saved).
 
 
 ***languages supported by the agent:*** Python, Javascript, Typescript, Lua, Rust, Kotlin, Swift, Dart, C, C++, C#, Java, Go, Scala, Ruby and Php
